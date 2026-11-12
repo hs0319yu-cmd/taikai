@@ -204,6 +204,8 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [sampleOpen]);
   const [scanPreview, setScanPreview] = useState("");
+  const [scanFile, setScanFile] = useState<File | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
   const [ocrText, setOcrText] = useState("");
   const scanInput = useRef<HTMLInputElement>(null);
 
@@ -247,7 +249,7 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
     mutationFn: api.orders.create,
     onSuccess: () => {
       toast.success("注文を保存しました", { description: `${phone} / ${yen(totalAmount)}` });
-      setItems([makeItem()]); setCustomerName(""); setPhone(""); setPostalCode(""); setAddress(""); setPostalStatus(""); lastAutoAddress.current = ""; setNotes(""); setDeliveryEnabled(false); setShippingRegion("");
+      setItems([makeItem()]); setCustomerName(""); setPhone(""); setPostalCode(""); setAddress(""); setPostalStatus(""); lastAutoAddress.current = ""; setNotes(""); setDeliveryEnabled(false); setShippingRegion(""); setScanPreview(""); setScanFile(null); setOcrText("");
       onSaved();
     },
     onError: error => toast.error("保存できませんでした", { description: error.message }),
@@ -256,9 +258,72 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
   const updateItem = (id: string, patch: Partial<DraftOrderItem>) => setItems(current => current.map(item => item.id === id ? { ...item, ...patch } : item));
   const handleScan = (file?: File) => {
     if (!file) return;
+    setScanFile(file);
     const reader = new FileReader();
     reader.onload = () => setScanPreview(String(reader.result));
     reader.readAsDataURL(file);
+  };
+
+  const runImageOcr = async () => {
+    if (!scanFile || !scanPreview) {
+      toast.error("先に注文メモの写真を選択してください");
+      return;
+    }
+    if (scanFile.size > 6 * 1024 * 1024) {
+      toast.error("画像サイズが大きすぎます", { description: "6MB以下の画像を選択してください。" });
+      return;
+    }
+    if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(scanFile.type)) {
+      toast.error("この画像形式は読み取れません", { description: "JPEG・PNG・WebP・HEIC画像を選択してください。" });
+      return;
+    }
+    setScanBusy(true);
+    try {
+      const base64 = scanPreview.includes(",") ? scanPreview.split(",", 2)[1] : scanPreview;
+      const parsed = await api.ai.parseImage({ imageBase64: base64, mimeType: scanFile.type });
+      if (parsed.customerName) setCustomerName(parsed.customerName);
+      if (parsed.phone) setPhone(parsed.phone);
+      if (parsed.postalCode) setPostalCode(parsed.postalCode);
+      if (parsed.address) setAddress(parsed.address);
+      if (parsed.notes) setNotes(parsed.notes);
+      if (parsed.deliveryEnabled) setDeliveryEnabled(true);
+      if (parsed.shippingRegion && shippingOptions.some(([region]) => region === parsed.shippingRegion)) setShippingRegion(parsed.shippingRegion);
+      if (parsed.recognizedText) setOcrText(parsed.recognizedText);
+      const extractedItems = Array.isArray(parsed.items) ? parsed.items : [];
+      const validItems = extractedItems.filter((item: any) => String(item.name || "").trim());
+      if (validItems.length) {
+        setItems(validItems.map((item: any, index: number) => {
+          const base = makeItem();
+          const recognizedColor = String(item.embroideryColor || "").trim();
+          const matchedColor = embroideryColors.find(([number, name]) => {
+            const full = `${String(number).padStart(2, "0")} ${name}`;
+            return recognizedColor === full || recognizedColor.includes(name);
+          });
+          return {
+            ...base,
+            id: `ai-${Date.now()}-${index}`,
+            name: String(item.name || ""),
+            price: Math.max(0, Number(item.price) || 0),
+            quantity: Number(item.quantity) > 0 ? Math.floor(Number(item.quantity)) : "",
+            embroidery: item.embroidery === true,
+            embroideryText: String(item.embroideryText || ""),
+            embroideryColor: matchedColor ? `${String(matchedColor[0]).padStart(2, "0")} ${matchedColor[1]}` : base.embroideryColor,
+            embroideryPrice: Math.max(0, Number(item.embroideryPrice) || 0),
+            handedOver: false,
+          };
+        }));
+      }
+      const filledCount = [parsed.customerName, parsed.phone, parsed.address, ...validItems.map((item: any) => item.name)].filter(Boolean).length;
+      if (!filledCount) {
+        toast.warning("文字を十分に読み取れませんでした", { description: "写真を明るく撮り直して、文字が大きく写るようにしてください。" });
+      } else {
+        toast.success("AI読み取りが完了しました", { description: `商品${validItems.length}件・お客様情報をフォームに反映しました。内容を確認してください。` });
+      }
+    } catch (error) {
+      toast.error("AI読み取りに失敗しました", { description: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setScanBusy(false);
+    }
   };
   const save = () => {
     if (!customerName.trim() || !phone.trim() || items.some(item => !item.name.trim())) {
@@ -322,7 +387,7 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
               {scanPreview ? <img src={scanPreview} alt="読み取りメモのプレビュー" /> : <><FileImage size={25} /><strong>メモ画像を選択</strong><span>撮影画像・スキャン画像を端末から選択</span></>}
               <input ref={scanInput} type="file" accept="image/*" hidden onChange={e => handleScan(e.target.files?.[0])} />
             </div>
-            <div className="scan-text-wrap"><label className="field"><span className="field-label">メモの読み取り結果 / OCR補助</span><textarea value={ocrText} onChange={e => setOcrText(e.target.value)} placeholder="画像を見ながら、読み取れた文字を入力してください" rows={4} /></label><p className="privacy-note"><ShieldCheck size={13} /> 入力内容を確認してから注文欄へ転記してください。</p><Button type="button" className="scan-button" onClick={() => toast.info("AIメモ自動振り分けは、AIサービスの接続後に利用できます。現在は読み取り結果を確認しながら手入力してください。")} disabled={!ocrText.trim()}><Sparkles size={16} />AI振り分け（接続準備中）</Button></div>
+            <div className="scan-text-wrap"><label className="field"><span className="field-label">AI読み取り結果</span><textarea value={ocrText} onChange={e => setOcrText(e.target.value)} placeholder="写真を選択して「AI読み取り・フォーム反映」を押してください" rows={4} /></label><p className="privacy-note"><ShieldCheck size={13} /> 写真はGemini AIで解析します。読み取り結果を確認・修正してから保存してください。</p><Button type="button" className="scan-button" onClick={runImageOcr} disabled={!scanFile || scanBusy}>{scanBusy ? <><RefreshCw size={16} className="spin" />AI読み取り中…</> : <><Sparkles size={16} />AI読み取り・フォーム反映</>}</Button></div>
           </div>
         </div>
 
