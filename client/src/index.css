@@ -30,7 +30,7 @@ textarea { padding: 11px 13px; resize: vertical; }
 input::placeholder, textarea::placeholder { color: #56737c; }
 input:focus, textarea:focus, select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(34,211,197,.12); }
 
-.app-shell { min-height: 100vh; background: radial-gradient(circle at 85% -20%, rgba(34,211,197,.13), transparent 32%), var(--bg); }
+.app-shell { min-height: 100vh; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); background: radial-gradient(circle at 85% -20%, rgba(34,211,197,.13), transparent 32%), var(--bg); }
 .topbar { height: 76px; display: flex; align-items: center; gap: 30px; padding: 0 42px; border-bottom: 1px solid var(--panel-border); background: rgba(8,20,27,.86); backdrop-filter: blur(14px); position: sticky; top: 0; z-index: 20; }
 .brand-lockup { display: flex; align-items: center; gap: 12px; min-width: 245px; }
 .brand-symbol { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--cyan); color: var(--cyan); transform: rotate(45deg); font-size: 16px; box-shadow: 0 0 16px rgba(34,211,197,.27); }
