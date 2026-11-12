@@ -178,7 +178,6 @@ function ItemCard({
 }
 
 function NewOrder({ onSaved }: { onSaved: () => void }) {
-  const [scanJobId, setScanJobId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [postalCode, setPostalCode] = useState("");
@@ -207,6 +206,7 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
   const [scanPreview, setScanPreview] = useState("");
   const [scanFile, setScanFile] = useState<File | null>(null);
   const [scanBusy, setScanBusy] = useState(false);
+  const [scanJobId, setScanJobId] = useState("");
   const [ocrText, setOcrText] = useState("");
   const scanInput = useRef<HTMLInputElement>(null);
 
