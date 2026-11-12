@@ -86,9 +86,81 @@ function makeItem(): DraftOrderItem {
     quantity: "",
     embroidery: false,
     embroideryText: "",
-    embroideryColor: "01 金茶",
+    embroideryColor: "なし",
     embroideryPrice: 0,
     handedOver: false,
+  };
+}
+
+/**
+ * OCR送信用画像を軽量化する
+ * 最大1600px・JPEG品質82%
+ * HEICなどブラウザで変換できない画像は元画像を使用
+ */
+async function prepareOcrImage(file: File): Promise<{
+  imageBase64: string;
+  mimeType: string;
+  size: number;
+}> {
+  let uploadFile: Blob = file;
+
+  try {
+    const bitmap = await createImageBitmap(file);
+
+    try {
+      const maxSize = 1600;
+      const longest = Math.max(bitmap.width, bitmap.height);
+
+      // 大きな画像だけ縮小
+      if (longest > maxSize || file.size > 1200 * 1024) {
+        const scale = Math.min(1, maxSize / longest);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+
+        const ctx = canvas.getContext("2d");
+
+        if (ctx) {
+          // 透過画像も白背景にして文字を読みやすくする
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+          const compressed = await new Promise<Blob | null>(
+            resolve => canvas.toBlob(resolve, "image/jpeg", 0.82)
+          );
+
+          if (compressed && compressed.size < file.size) {
+            uploadFile = compressed;
+          }
+        }
+      }
+    } finally {
+      bitmap.close();
+    }
+  } catch (error) {
+    // HEICなど変換できない画像は元画像を使う
+    uploadFile = file;
+  }
+
+  if (uploadFile.size > 6 * 1024 * 1024) {
+    throw new Error("画像サイズが大きすぎます。6MB以下にしてください。");
+  }
+
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("画像の読み込みに失敗しました。"));
+
+    reader.readAsDataURL(uploadFile);
+  });
+
+  return {
+    imageBase64: dataUrl.split(",")[1],
+    mimeType: uploadFile.type || file.type || "image/jpeg",
+    size: uploadFile.size
   };
 }
 
@@ -270,16 +342,10 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
 };
 
 
-const runImageOcr = async () => {
-  if (!scanFile || !scanPreview) {
-    toast.error("先に注文メモの写真を選択してください");
-    return;
-  }
 
-  if (scanFile.size > 6 * 1024 * 1024) {
-    toast.error("画像サイズが大きすぎます", {
-      description: "6MB以下の画像を選択してください。"
-    });
+const runImageOcr = async () => {
+  if (!scanFile) {
+    toast.error("先に注文メモの写真を選択してください");
     return;
   }
 
@@ -293,54 +359,56 @@ const runImageOcr = async () => {
   try {
     let jobId = scanJobId;
 
-    // まだ受付番号がない場合は画像を送信
+    // 新しいジョブの場合だけ画像を送信
     if (!jobId) {
-      const base64 = scanPreview.includes(",")
-        ? scanPreview.split(",", 2)[1]
-        : scanPreview;
+      toast.info("画像を準備しています…");
+
+      const prepared = await prepareOcrImage(scanFile);
 
       const started = await api.ai.startImage({
-        imageBase64: base64,
-        mimeType: scanFile.type
+        imageBase64: prepared.imageBase64,
+        mimeType: prepared.mimeType
       });
 
       if (!started?.success || !started.jobId) {
-        throw new Error(started?.message || "OCR受付に失敗しました。");
+        throw new Error(
+          started?.message || "OCR受付に失敗しました。"
+        );
       }
 
       jobId = started.jobId;
       setScanJobId(jobId);
-    }
 
-    toast.success("画像を受け付けました", {
-      description: "AIが注文内容を読み取っています。"
-    });
+      toast.success("画像を受け付けました", {
+        description: "AIが注文内容を読み取っています。"
+      });
+    }
 
     let parsed: any = null;
 
-    // バックグラウンド処理の完了を確認
+    // 2秒間隔で結果を自動確認
     for (let i = 0; i < 240; i++) {
       await new Promise(resolve => window.setTimeout(resolve, 2000));
 
       const response = await api.ai.getImageResult(jobId);
 
       if (response.status === "done") {
-        parsed = response.result;
+        parsed = response.result || response;
         break;
       }
 
       if (response.status === "failed") {
         setScanJobId("");
+
         throw new Error(
           response.error || "AI画像読み取りに失敗しました。"
         );
       }
     }
 
-    // 8分以内に完了しなかった場合
     if (!parsed) {
       toast.warning("AI読み取りを継続しています", {
-        description: "もう一度ボタンを押すと、同じ処理の結果を確認できます。"
+        description: "同じボタンを押すと続きから確認できます。"
       });
       return;
     }
@@ -421,7 +489,8 @@ const runImageOcr = async () => {
       });
     } else {
       toast.success("AI読み取りが完了しました", {
-        description: `商品${validItems.length}件・お客様情報を反映しました。内容を確認してください。`
+        description:
+          `商品${validItems.length}件・お客様情報を反映しました。内容を確認してください。`
       });
     }
 
@@ -435,9 +504,6 @@ const runImageOcr = async () => {
     setScanBusy(false);
   }
 };
-
-
-
   
   const save = () => {
     if (!customerName.trim() || !phone.trim() || items.some(item => !item.name.trim())) {
