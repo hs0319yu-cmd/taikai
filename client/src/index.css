@@ -72,6 +72,7 @@ h3 { font-size: 15px; letter-spacing: .01em; }
 .title-icon.coral { color: var(--coral); background: rgba(255,123,114,.08); border-color: rgba(255,123,114,.16); }
 .panel-title .count-badge { margin-left: auto; font-size: 11px; color: var(--muted); border: 1px solid rgba(164,234,235,.14); padding: 5px 9px; border-radius: 99px; }
 .customer-grid, .item-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 17px; }
+.product-entry-grid { grid-template-columns: 1.4fr 1fr .65fr; }
 .field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .field-wide { grid-column: 1 / -1; }
 .field-label { color: #9bb6bc; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
@@ -226,6 +227,7 @@ h3 { font-size: 15px; letter-spacing: .01em; }
   .print-order-head { font-size: 11px; margin-bottom: 10px; }
   .print-order-head span { color: #65787e; }
   .print-item { padding: 7px 0; border-bottom: 1px solid #d5dddf; font-size: 11px; }
+  .print-item small { display: block; margin-top: 3px; color: #65787e; font-size: 9px; }
   .print-total { border-top: 2px solid #18252b; margin-top: 9px; padding-top: 10px; font-weight: 700; font-size: 12px; }
   .print-footer { margin-top: 28px; padding-top: 13px; border-top: 1px solid #aab8bb; font-size: 10px; color: #65787e; }
 }
@@ -246,6 +248,7 @@ h3 { font-size: 15px; letter-spacing: .01em; }
   .section-intro, .saved-header, .group-head { align-items: start; flex-direction: column; }
   .privacy-chip { align-self: flex-start; }
   .customer-grid, .item-grid, .scan-content { grid-template-columns: 1fr; }
+  .product-entry-grid { grid-template-columns: 1fr; }
   .field-wide { grid-column: auto; }
   .scan-upload { min-height: 100px; }
   .summary-column { grid-template-columns: 1fr; }
