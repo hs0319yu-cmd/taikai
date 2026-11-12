@@ -96,7 +96,7 @@ function makeItem(): DraftOrderItem {
 
 /**
  * OCR送信用画像を軽量化する
- * 最大1600px・JPEG品質82%
+ * 最大2048px・JPEG品質86%（小さい文字の判読性を優先）
  * HEICなどブラウザで変換できない画像は元画像を使用
  */
 async function prepareOcrImage(file: File): Promise<{
@@ -110,11 +110,11 @@ async function prepareOcrImage(file: File): Promise<{
     const bitmap = await createImageBitmap(file);
 
     try {
-      const maxSize = 1600;
+      const maxSize = 2048;
       const longest = Math.max(bitmap.width, bitmap.height);
 
       // 大きな画像だけ縮小
-      if (longest > maxSize || file.size > 1200 * 1024) {
+      if (longest > maxSize || file.size > 2 * 1024 * 1024) {
         const scale = Math.min(1, maxSize / longest);
 
         const canvas = document.createElement("canvas");
@@ -130,7 +130,7 @@ async function prepareOcrImage(file: File): Promise<{
           ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
 
           const compressed = await new Promise<Blob | null>(
-            resolve => canvas.toBlob(resolve, "image/jpeg", 0.82)
+            resolve => canvas.toBlob(resolve, "image/jpeg", 0.86)
           );
 
           if (compressed && compressed.size < file.size) {
@@ -395,9 +395,10 @@ const runImageOcr = async () => {
 
     let parsed: any = null;
 
-    // 2秒間隔で結果を自動確認
+    // 最初は短い間隔で確認し、待機が長引く場合は通信回数を抑える
     for (let i = 0; i < 240; i++) {
-      await new Promise(resolve => window.setTimeout(resolve, 2000));
+      const waitMs = i < 12 ? 1200 : 1800;
+      await new Promise(resolve => window.setTimeout(resolve, waitMs));
 
       const response = await api.ai.getImageResult(jobId);
 
