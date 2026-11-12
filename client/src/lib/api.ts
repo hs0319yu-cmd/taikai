@@ -4,7 +4,7 @@ const TOKEN_KEY = "taikai_session_token";
 export type ApiUser = { staffId: string; email: string; name: string; role: "admin" | "staff" };
 export type ApiStaff = { id: string; email: string; name: string; role: "admin" | "staff"; isActive: boolean };
 export type ApiOrderItem = {
-  id: string; name: string; price: number; embroidery: boolean;
+  id: string; name: string; price: number; quantity: number; embroidery: boolean;
   embroideryText: string; embroideryColor: string; embroideryPrice: number;
 };
 export type ApiOrder = {
@@ -49,7 +49,7 @@ function normalizeOrder(raw: any): ApiOrder {
     phone: String(raw.phone ?? ""),
     customerName: String(raw.customerName ?? ""),
     address: String(raw.address ?? ""),
-    items: Array.isArray(raw.items) ? raw.items : [],
+    items: Array.isArray(raw.items) ? raw.items.map((item: any) => ({ ...item, quantity: Math.max(1, Number(item.quantity) || 1) })) : [],
     deliveryEnabled: raw.deliveryEnabled === true || raw.deliveryEnabled === "true",
     shippingRegion: raw.shippingRegion || null,
     shippingAmount: Number(raw.shippingAmount || 0),
