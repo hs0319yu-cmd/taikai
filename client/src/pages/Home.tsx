@@ -33,6 +33,7 @@ type OrderItem = {
   embroideryText: string;
   embroideryColor: string;
   embroideryPrice: number;
+  handedOver: boolean;
 };
 
 type StoredOrder = {
@@ -86,6 +87,7 @@ function makeItem(): OrderItem {
     embroideryText: "",
     embroideryColor: "01 金茶",
     embroideryPrice: 0,
+    handedOver: false,
   };
 }
 
@@ -131,7 +133,7 @@ function ItemCard({
         <Field label="商品名">
           <input value={item.name} onChange={e => onChange({ name: e.target.value })} placeholder="例：大会Tシャツ" />
         </Field>
-        <Field label="商品単価">
+        <Field label="商品単価（税込）">
           <div className="input-with-unit"><input type="number" min="0" value={item.price || ""} onChange={e => onChange({ price: Number(e.target.value) || 0 })} placeholder="0" /><span>円</span></div>
         </Field>
         <Field label="数量（点数）">
@@ -153,7 +155,7 @@ function ItemCard({
           <div className="detail-heading"><Sparkles size={16} /><span>刺繍指定</span><span className="detail-caption">この商品のみ</span></div>
           <div className="item-grid">
             <Field label="刺繍の内容" wide><input value={item.embroideryText} onChange={e => onChange({ embroideryText: e.target.value })} placeholder="例：背番号 10 / TAKEDA" /></Field>
-            <Field label="刺繍価格"><div className="input-with-unit"><input type="number" min="0" value={item.embroideryPrice || ""} onChange={e => onChange({ embroideryPrice: Number(e.target.value) || 0 })} placeholder="0" /><span>円</span></div></Field>
+            <Field label="刺繍価格（税込）"><div className="input-with-unit"><input type="number" min="0" value={item.embroideryPrice || ""} onChange={e => onChange({ embroideryPrice: Number(e.target.value) || 0 })} placeholder="0" /><span>円</span></div></Field>
           </div>
           <div className="color-pick-area">
             <div className="color-label"><span className="field-label">刺繍色</span><strong>{item.embroideryColor || "未選択"}</strong><small>見本の番号で選択</small></div>
@@ -177,7 +179,10 @@ function ItemCard({
 function NewOrder({ onSaved }: { onSaved: () => void }) {
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [address, setAddress] = useState("");
+  const [postalStatus, setPostalStatus] = useState("");
+  const lastAutoAddress = useRef("");
   const [items, setItems] = useState<OrderItem[]>([makeItem()]);
   const [deliveryEnabled, setDeliveryEnabled] = useState(false);
   const [shippingRegion, setShippingRegion] = useState("");
@@ -201,6 +206,39 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
   const [ocrText, setOcrText] = useState("");
   const scanInput = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const normalized = postalCode.replace(/\D/g, "");
+    if (normalized.length !== 7) {
+      setPostalStatus("");
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        setPostalStatus("住所を検索中…");
+        const response = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${normalized}`, { signal: controller.signal });
+        if (!response.ok) throw new Error("住所検索に失敗しました");
+        const data = await response.json();
+        const result = data?.results?.[0];
+        if (!result) {
+          setPostalStatus("該当する住所が見つかりませんでした");
+          return;
+        }
+        const foundAddress = `${result.address1}${result.address2}${result.address3}`;
+        if (!address.trim() || address === lastAutoAddress.current) {
+          lastAutoAddress.current = foundAddress;
+          setAddress(foundAddress);
+          setPostalStatus("住所を自動入力しました");
+        } else {
+          setPostalStatus("住所が見つかりました。既存の住所は変更していません");
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) setPostalStatus("住所を取得できませんでした。住所を手入力してください");
+      }
+    }, 350);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [postalCode, address]);
+
   const shippingAmount = shippingOptions.find(([region]) => region === shippingRegion)?.[1] ?? 0;
   const itemAmount = items.reduce((sum, item) => sum + (item.price + (item.embroidery ? item.embroideryPrice : 0)) * Math.max(1, item.quantity || 1), 0);
   const totalAmount = itemAmount + (deliveryEnabled ? shippingAmount : 0);
@@ -208,7 +246,7 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
     mutationFn: api.orders.create,
     onSuccess: () => {
       toast.success("注文を保存しました", { description: `${phone} / ${yen(totalAmount)}` });
-      setItems([makeItem()]); setCustomerName(""); setPhone(""); setAddress(""); setNotes(""); setDeliveryEnabled(false); setShippingRegion("");
+      setItems([makeItem()]); setCustomerName(""); setPhone(""); setPostalCode(""); setAddress(""); setPostalStatus(""); lastAutoAddress.current = ""; setNotes(""); setDeliveryEnabled(false); setShippingRegion("");
       onSaved();
     },
     onError: error => toast.error("保存できませんでした", { description: error.message }),
@@ -267,7 +305,8 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
           <div className="customer-grid">
             <Field label="お名前"><input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="山田 太郎" /></Field>
             <Field label="電話番号 / 注文番号"><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="090-0000-0000" inputMode="tel" /></Field>
-            <Field label="住所" wide><input value={address} onChange={e => setAddress(e.target.value)} placeholder="〒000-0000 東京都…" /></Field>
+            <Field label="郵便番号"><input value={postalCode} onChange={e => setPostalCode(e.target.value)} placeholder="860-0001 / 8600001" inputMode="numeric" autoComplete="postal-code" maxLength={8} /></Field>
+            <Field label="住所" wide><input value={address} onChange={e => setAddress(e.target.value)} placeholder="郵便番号から自動入力・手動修正も可能" autoComplete="street-address" />{postalStatus && <small className="postal-status">{postalStatus}</small>}</Field>
           </div>
         </div>
 
@@ -303,7 +342,7 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
           <Button type="button" className="save-button" onClick={save} disabled={createOrder.isPending}><Send size={17} />{createOrder.isPending ? "保存中…" : "この注文を保存"}</Button>
           <p className="save-hint"><ShieldCheck size={13} /> 保存データは認証済みスタッフのみ閲覧できます</p>
         </div>
-        <div className="quick-info"><div className="quick-info-head"><Truck size={17} /><strong>送料表</strong></div><div className="shipping-mini-grid">{shippingOptions.map(([region, amount]) => <span key={region}><b>{region}</b><em>{yen(amount)}</em></span>)}</div></div>
+        <div className="quick-info"><div className="quick-info-head"><Truck size={17} /><strong>送料表（税込・表示額をそのまま加算）</strong></div><div className="shipping-mini-grid">{shippingOptions.map(([region, amount]) => <span key={region}><b>{region}</b><em>{yen(amount)}</em></span>)}</div></div>
       </aside>
       {sampleOpen && <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="刺繍糸見本の拡大表示" onClick={() => { setSampleOpen(false); resetSampleZoom(); }}>
         <div className="lightbox-toolbar" onClick={event => event.stopPropagation()}><span>刺繍糸見本 / 1〜32番 <small>{Math.round(sampleZoom * 100)}%</small></span><div className="lightbox-actions"><Button type="button" variant="ghost" size="icon" onClick={() => setSampleZoom(value => Math.max(1, +(value - .25).toFixed(2)))} aria-label="縮小"><Minus size={18} /></Button><Button type="button" variant="ghost" size="icon" onClick={() => setSampleZoom(value => Math.min(5, +(value + .25).toFixed(2)))} aria-label="拡大"><Plus size={18} /></Button><Button type="button" variant="ghost" size="sm" onClick={resetSampleZoom}>リセット</Button><Button type="button" variant="ghost" size="icon" onClick={() => { setSampleOpen(false); resetSampleZoom(); }} aria-label="拡大表示を閉じる"><X size={20} /></Button></div></div>
@@ -321,7 +360,7 @@ function SavedOrders({ onNewOrder }: { onNewOrder: () => void }) {
   const [printPhone, setPrintPhone] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const ordersQuery = useQuery({ queryKey: ["orders"], queryFn: api.orders.list });
-  const handedOver = useMutation({ mutationFn: api.orders.setHandedOver, onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders"] }), onError: (error: Error) => toast.error("状態を更新できませんでした", { description: error.message }) });
+  const itemHandedOver = useMutation({ mutationFn: api.orders.setItemHandedOver, onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders"] }), onError: (error: Error) => toast.error("引き渡し状態を更新できませんでした", { description: error.message }) });
   const orders = (ordersQuery.data ?? []) as StoredOrder[];
   const filtered = orders.filter(order => {
     const matchesQuery = `${order.phone} ${order.customerName}`.toLowerCase().includes(query.toLowerCase());
@@ -338,8 +377,8 @@ function SavedOrders({ onNewOrder }: { onNewOrder: () => void }) {
     <div className="saved-view">
       <div className="saved-header"><div><p className="eyebrow cyan">SAVED ORDERS / HISTORY</p><h2>保存済み注文</h2><p className="section-note">電話番号ごとに注文をまとめて、受け渡し状況を更新できます。</p></div><Button type="button" className="new-order-button" onClick={onNewOrder}><Plus size={17} /> 新しい注文</Button></div>
       <div className="saved-toolbar"><div className="search-box"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="電話番号・お名前で検索" /></div><div className="filter-tabs"><button className={status === "all" ? "active" : ""} onClick={() => setStatus("all")}>すべて <b>{orders.length}</b></button><button className={status === "open" ? "active" : ""} onClick={() => setStatus("open")}>未受け渡し <b>{orders.filter(order => !order.handedOver).length}</b></button><button className={status === "done" ? "active" : ""} onClick={() => setStatus("done")}>渡し済み <b>{orders.filter(order => order.handedOver).length}</b></button></div><Button variant="ghost" size="icon" type="button" onClick={() => ordersQuery.refetch()} aria-label="更新"><RefreshCw size={17} className={ordersQuery.isFetching ? "spin" : ""} /></Button></div>
-      {ordersQuery.isLoading ? <div className="empty-state"><RefreshCw className="spin" /><p>注文を読み込んでいます…</p></div> : groups.length === 0 ? <div className="empty-state"><ClipboardList size={35} /><h3>該当する注文はありません</h3><p>新しい注文を入力するか、検索条件を変更してください。</p></div> : <div className="order-groups">{groups.map(group => { const first = group.orders[0]; const openCount = group.orders.filter(order => !order.handedOver).length; return <article className="order-group" key={group.phone}><div className="group-head"><div className="group-person"><div className="avatar">{first.customerName.slice(0, 1) || "?"}</div><div><p className="eyebrow">PHONE / 注文番号</p><h3>{group.phone}</h3><span>{first.customerName} ・ {group.orders.length}件の注文</span></div></div><div className="group-actions"><span className={`status-pill ${openCount ? "open" : "done"}`}><span />{openCount ? `${openCount}件 未受け渡し` : "すべて渡し済み"}</span><Button variant="outline" size="sm" type="button" onClick={() => print(group.phone)}><Printer size={15} /> A4印刷</Button></div></div><div className="group-orders">{group.orders.map(order => <div className="order-row" key={order.id}><div className="order-row-main"><div className="order-id">#{String(order.id).padStart(4, "0")}</div><div><strong>{order.items.map(item => `${item.name || "商品未入力"} ×${Math.max(1, item.quantity || 1)}`).join(" / ")}</strong><span>{new Date(order.createdAt).toLocaleString("ja-JP")} ・ {order.deliveryEnabled ? `発送 ${order.shippingRegion}` : "会場受け取り"}</span></div></div><div className="order-row-total">{yen(order.totalAmount)}</div><Button type="button" className={order.handedOver ? "handed-button done" : "handed-button"} size="sm" onClick={() => handedOver.mutate({ id: String(order.id), handedOver: !order.handedOver })}>{order.handedOver ? <><Check size={15} /> 渡し済み</> : <><PackageCheck size={15} /> 渡し済みにする</>}</Button></div>)}</div></article>; })}</div>}
-      {printPhone && printCustomer && <div className="print-sheet"><div className="print-brand"><div className="print-mark">✦</div><div><strong>大会注文管理</strong><span>ORDER RECEIPT / A4</span></div></div><div className="print-title"><div><p>受 注 票</p><h1>{printCustomer.customerName} 様</h1></div><div className="print-status">{printOrders.every(order => order.handedOver) ? "渡し済み" : "未受け渡し"}</div></div><div className="print-customer"><div><span>電話番号 / 注文番号</span><strong>{printCustomer.phone}</strong></div><div><span>住所</span><strong>{printCustomer.address || "—"}</strong></div></div>{printOrders.map(order => <div className="print-order" key={order.id}><div className="print-order-head"><strong>注文 #{String(order.id).padStart(4, "0")}</strong><span>{new Date(order.createdAt).toLocaleString("ja-JP")}</span></div>{order.items.map(item => <div className="print-item" key={item.id}><span>{item.name} × {Math.max(1, item.quantity || 1)}点{item.embroidery ? ` / 刺繍：${item.embroideryText || "あり"}（${item.embroideryColor}）` : ""}<small>単価：{yen(item.price + (item.embroidery ? item.embroideryPrice : 0))}</small></span><strong>{yen((item.price + (item.embroidery ? item.embroideryPrice : 0)) * Math.max(1, item.quantity || 1))}</strong></div>)}{order.deliveryEnabled && <div className="print-item"><span>送料（{order.shippingRegion}）</span><strong>{yen(order.shippingAmount)}</strong></div>}<div className="print-total"><span>注文合計</span><strong>{yen(order.totalAmount)}</strong></div></div>)}<div className="print-footer">ご注文内容をご確認ください。ありがとうございました。</div></div>}
+      {ordersQuery.isLoading ? <div className="empty-state"><RefreshCw className="spin" /><p>注文を読み込んでいます…</p></div> : groups.length === 0 ? <div className="empty-state"><ClipboardList size={35} /><h3>該当する注文はありません</h3><p>新しい注文を入力するか、検索条件を変更してください。</p></div> : <div className="order-groups">{groups.map(group => { const first = group.orders[0]; const openCount = group.orders.filter(order => !order.handedOver).length; return <article className="order-group" key={group.phone}><div className="group-head"><div className="group-person"><div className="avatar">{first.customerName.slice(0, 1) || "?"}</div><div><p className="eyebrow">PHONE / 注文番号</p><h3>{group.phone}</h3><span>{first.customerName} ・ {group.orders.length}件の注文</span></div></div><div className="group-actions"><span className={`status-pill ${openCount ? "open" : "done"}`}><span />{openCount ? `${openCount}件 未受け渡し` : "すべて渡し済み"}</span><Button variant="outline" size="sm" type="button" onClick={() => print(group.phone)}><Printer size={15} /> A4印刷</Button></div></div><div className="group-orders">{group.orders.map(order => <div className="order-row" key={order.id}><div className="order-row-main"><div className="order-id">#{String(order.id).padStart(4, "0")}</div><div className="order-main-content"><strong>{order.items.map(item => `${item.name || "商品未入力"} ×${Math.max(1, item.quantity || 1)}`).join(" / ")}</strong><span>{new Date(order.createdAt).toLocaleString("ja-JP")} ・ {order.deliveryEnabled ? `発送 ${order.shippingRegion}` : "会場受け取り"}</span><div className="order-item-handover-list">{order.items.map((item, itemIndex) => <div className="order-item-handover" key={item.id || itemIndex}><span>{item.name || "商品未入力"} ×{Math.max(1, item.quantity || 1)}</span><Button type="button" size="sm" className={item.handedOver ? "handed-button done" : "handed-button"} disabled={itemHandedOver.isPending} onClick={() => itemHandedOver.mutate({ id: String(order.id), itemIndex, handedOver: !item.handedOver })}>{item.handedOver ? <><Check size={14} /> 渡し済み</> : <><PackageCheck size={14} /> 未渡し・渡す</>}</Button></div>)}</div></div></div><div className="order-row-total">{yen(order.totalAmount)}</div></div>)}</div></article>; })}</div>}
+      {printPhone && printCustomer && <div className="print-sheet"><div className="print-brand"><div className="print-mark">✦</div><div><strong>大会注文管理</strong><span>ORDER RECEIPT / A4</span></div></div><div className="print-title"><div><p>受 注 票</p><h1>{printCustomer.customerName} 様</h1></div><div className="print-status">{printOrders.every(order => order.handedOver) ? "渡し済み" : printOrders.some(order => order.items.some(item => item.handedOver)) ? "一部渡し済み" : "未受け渡し"}</div></div><div className="print-customer"><div><span>電話番号 / 注文番号</span><strong>{printCustomer.phone}</strong></div><div><span>住所</span><strong>{printCustomer.address || "—"}</strong></div></div>{printOrders.map(order => <div className="print-order" key={order.id}><div className="print-order-head"><strong>注文 #{String(order.id).padStart(4, "0")}</strong><span>{new Date(order.createdAt).toLocaleString("ja-JP")}</span></div>{order.items.map(item => <div className="print-item" key={item.id}><span>{item.name} × {Math.max(1, item.quantity || 1)}点{item.embroidery ? ` / 刺繍：${item.embroideryText || "あり"}（${item.embroideryColor}）` : ""}<small>単価：{yen(item.price + (item.embroidery ? item.embroideryPrice : 0))} ／ {item.handedOver ? "渡し済み" : "未渡し"}</small></span><strong>{yen((item.price + (item.embroidery ? item.embroideryPrice : 0)) * Math.max(1, item.quantity || 1))}</strong></div>)}{order.deliveryEnabled && <div className="print-item"><span>送料（{order.shippingRegion}）</span><strong>{yen(order.shippingAmount)}</strong></div>}<div className="print-total"><span>注文合計</span><strong>{yen(order.totalAmount)}</strong></div></div>)}<div className="print-footer">ご注文内容をご確認ください。ありがとうございました。</div></div>}
     </div>
   );
 }
