@@ -250,7 +250,7 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
     mutationFn: api.orders.create,
     onSuccess: () => {
       toast.success("注文を保存しました", { description: `${phone} / ${yen(totalAmount)}` });
-      setItems([makeItem()]); setCustomerName(""); setPhone(""); setPostalCode(""); setAddress(""); setPostalStatus(""); lastAutoAddress.current = ""; setNotes(""); setDeliveryEnabled(false); setShippingRegion(""); setScanPreview(""); setScanFile(null); setOcrText("");
+      setItems([makeItem()]); setCustomerName(""); setPhone(""); setPostalCode(""); setAddress(""); setPostalStatus(""); lastAutoAddress.current = ""; setNotes(""); setDeliveryEnabled(false); setShippingRegion(""); setScanPreview(""); setScanFile(null); setOcrText("");setScanJobId("");
       onSaved();
     },
     onError: error => toast.error("保存できませんでした", { description: error.message }),
