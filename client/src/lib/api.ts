@@ -5,7 +5,7 @@ export type ApiUser = { staffId: string; email: string; name: string; role: "adm
 export type ApiStaff = { id: string; email: string; name: string; role: "admin" | "staff"; isActive: boolean };
 export type ApiOrderItem = {
   id: string; name: string; price: number; quantity: number; embroidery: boolean;
-  embroideryText: string; embroideryColor: string; embroideryPrice: number;
+  embroideryText: string; embroideryColor: string; embroideryPrice: number; handedOver: boolean;
 };
 export type ApiOrder = {
   id: string; orderId: string; phone: string; customerName: string; address: string;
@@ -42,6 +42,7 @@ async function callApi<T = any>(action: string, payload: Record<string, unknown>
 
 function normalizeOrder(raw: any): ApiOrder {
   const id = String(raw.orderId ?? raw.id ?? "");
+  const orderHandedOver = raw.handedOver === true || raw.handedOver === "true";
   return {
     ...raw,
     id,
@@ -49,12 +50,19 @@ function normalizeOrder(raw: any): ApiOrder {
     phone: String(raw.phone ?? ""),
     customerName: String(raw.customerName ?? ""),
     address: String(raw.address ?? ""),
-    items: Array.isArray(raw.items) ? raw.items.map((item: any) => ({ ...item, quantity: Math.max(1, Number(item.quantity) || 1) })) : [],
+    items: Array.isArray(raw.items) ? raw.items.map((item: any) => ({
+      ...item,
+      quantity: Math.max(1, Number(item.quantity) || 1),
+      // 旧データは注文全体の引き渡し状態を商品へ引き継ぐ
+      handedOver: typeof item.handedOver === "boolean" ? item.handedOver : orderHandedOver,
+    })) : [],
     deliveryEnabled: raw.deliveryEnabled === true || raw.deliveryEnabled === "true",
     shippingRegion: raw.shippingRegion || null,
     shippingAmount: Number(raw.shippingAmount || 0),
     totalAmount: Number(raw.totalAmount || 0),
-    handedOver: raw.handedOver === true || raw.handedOver === "true",
+    handedOver: Array.isArray(raw.items) && raw.items.length > 0
+      ? raw.items.every((item: any) => typeof item.handedOver === "boolean" ? item.handedOver : orderHandedOver)
+      : orderHandedOver,
     notes: raw.notes || null,
     createdAt: raw.createdAt ? new Date(raw.createdAt) : new Date(),
     updatedAt: raw.updatedAt ? new Date(raw.updatedAt) : new Date(),
@@ -112,6 +120,9 @@ export const api = {
     },
     setHandedOver(input: { id: string; handedOver: boolean }) {
       return callApi("orders.setHandedOver", { orderId: input.id, handedOver: input.handedOver });
+    },
+    setItemHandedOver(input: { id: string; itemIndex: number; handedOver: boolean }) {
+      return callApi("orders.setItemHandedOver", { orderId: input.id, itemIndex: input.itemIndex, handedOver: input.handedOver });
     },
   },
 };
