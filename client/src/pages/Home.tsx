@@ -35,6 +35,7 @@ type OrderItem = {
   embroideryPrice: number;
   handedOver: boolean;
 };
+type DraftOrderItem = Omit<OrderItem, "quantity"> & { quantity: number | "" };
 
 type StoredOrder = {
   id: string;
@@ -77,12 +78,12 @@ const embroideryColors = [
   [29, "白ピンク", "#f2d7de"], [30, "蛍光ピンク", "#ff52b4"], [31, "蛍光黄緑", "#b9ef73"], [32, "蛍光オレンジ", "#ff7b37"],
 ] as const;
 
-function makeItem(): OrderItem {
+function makeItem(): DraftOrderItem {
   return {
     id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     name: "",
     price: 0,
-    quantity: 1,
+    quantity: "",
     embroidery: false,
     embroideryText: "",
     embroideryColor: "01 金茶",
@@ -109,9 +110,9 @@ function ItemCard({
   onRemove,
   onOpenSample,
 }: {
-  item: OrderItem;
+  item: DraftOrderItem;
   index: number;
-  onChange: (patch: Partial<OrderItem>) => void;
+  onChange: (patch: Partial<DraftOrderItem>) => void;
   onRemove: () => void;
   onOpenSample: () => void;
 }) {
@@ -137,7 +138,7 @@ function ItemCard({
           <div className="input-with-unit"><input type="number" min="0" value={item.price || ""} onChange={e => onChange({ price: Number(e.target.value) || 0 })} placeholder="0" /><span>円</span></div>
         </Field>
         <Field label="数量（点数）">
-          <input type="number" min="1" step="1" value={item.quantity} onChange={e => onChange({ quantity: Math.max(1, Math.floor(Number(e.target.value) || 1)) })} />
+          <input type="number" min="1" step="1" value={item.quantity} onChange={e => { const value = e.target.value; onChange({ quantity: value === "" ? "" : Number(value) }); }} placeholder="数量を入力" />
         </Field>
       </div>
       <div className="embroidery-row">
@@ -148,7 +149,7 @@ function ItemCard({
             <button type="button" className={item.embroidery ? "active" : ""} onClick={() => onChange({ embroidery: true })}>あり</button>
           </div>
         </div>
-        <div className="item-subtotal">単価 {yen(item.price + (item.embroidery ? item.embroideryPrice : 0))} × {item.quantity}点　小計 <strong>{yen((item.price + (item.embroidery ? item.embroideryPrice : 0)) * item.quantity)}</strong></div>
+        <div className="item-subtotal">単価 {yen(item.price + (item.embroidery ? item.embroideryPrice : 0))} × {item.quantity === "" ? "—" : `${item.quantity}点`}　小計 <strong>{yen((item.price + (item.embroidery ? item.embroideryPrice : 0)) * (Number(item.quantity) || 0))}</strong></div>
       </div>
       {item.embroidery && (
         <div className="embroidery-detail">
@@ -183,7 +184,7 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
   const [address, setAddress] = useState("");
   const [postalStatus, setPostalStatus] = useState("");
   const lastAutoAddress = useRef("");
-  const [items, setItems] = useState<OrderItem[]>([makeItem()]);
+  const [items, setItems] = useState<DraftOrderItem[]>([makeItem()]);
   const [deliveryEnabled, setDeliveryEnabled] = useState(false);
   const [shippingRegion, setShippingRegion] = useState("");
   const [notes, setNotes] = useState("");
@@ -240,7 +241,7 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
   }, [postalCode, address]);
 
   const shippingAmount = shippingOptions.find(([region]) => region === shippingRegion)?.[1] ?? 0;
-  const itemAmount = items.reduce((sum, item) => sum + (item.price + (item.embroidery ? item.embroideryPrice : 0)) * Math.max(1, item.quantity || 1), 0);
+  const itemAmount = items.reduce((sum, item) => sum + (item.price + (item.embroidery ? item.embroideryPrice : 0)) * (Number(item.quantity) || 0), 0);
   const totalAmount = itemAmount + (deliveryEnabled ? shippingAmount : 0);
   const createOrder = useMutation({
     mutationFn: api.orders.create,
@@ -252,7 +253,7 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
     onError: error => toast.error("保存できませんでした", { description: error.message }),
   });
 
-  const updateItem = (id: string, patch: Partial<OrderItem>) => setItems(current => current.map(item => item.id === id ? { ...item, ...patch } : item));
+  const updateItem = (id: string, patch: Partial<DraftOrderItem>) => setItems(current => current.map(item => item.id === id ? { ...item, ...patch } : item));
   const handleScan = (file?: File) => {
     if (!file) return;
     const reader = new FileReader();
@@ -263,7 +264,11 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
     if (!customerName.trim() || !phone.trim() || items.some(item => !item.name.trim())) {
       toast.error("お名前・電話番号・商品名を入力してください"); return;
     }
-    createOrder.mutate({ phone, customerName, address, items, deliveryEnabled, shippingRegion: shippingRegion || null, shippingAmount: deliveryEnabled ? shippingAmount : 0, totalAmount, notes });
+    if (items.some(item => item.quantity === "" || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) {
+      toast.error("商品の数量を1以上の整数で入力してください"); return;
+    }
+    const savedItems: OrderItem[] = items.map(item => ({ ...item, quantity: Number(item.quantity) }));
+    createOrder.mutate({ phone, customerName, address, items: savedItems, deliveryEnabled, shippingRegion: shippingRegion || null, shippingAmount: deliveryEnabled ? shippingAmount : 0, totalAmount, notes });
   };
   const resetSampleZoom = () => { setSampleZoom(1); setSamplePan({ x: 0, y: 0 }); };
   const onSamplePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -322,7 +327,7 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
         </div>
 
         <div className="panel items-panel">
-          <div className="panel-title"><div className="title-icon item"><PackageCheck size={18} /></div><div><p className="eyebrow">ITEMS / 商品明細</p><h3>商品を追加</h3></div><span className="count-badge">{items.reduce((sum, item) => sum + Math.max(1, item.quantity || 1), 0)} 点</span></div>
+          <div className="panel-title"><div className="title-icon item"><PackageCheck size={18} /></div><div><p className="eyebrow">ITEMS / 商品明細</p><h3>商品を追加</h3></div><span className="count-badge">{items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)} 点</span></div>
           <div className="item-list">{items.map((item, index) => <ItemCard key={item.id} item={item} index={index} onChange={patch => updateItem(item.id, patch)} onRemove={() => setItems(current => current.filter(entry => entry.id !== item.id))} onOpenSample={() => setSampleOpen(true)} />)}</div>
           <Button type="button" variant="outline" className="add-item-button" onClick={() => setItems(current => [...current, makeItem()])}><Plus size={18} /> 商品を追加</Button>
         </div>
