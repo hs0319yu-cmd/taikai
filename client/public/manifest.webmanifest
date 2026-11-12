@@ -1,0 +1,23 @@
+{
+  "name": "大会注文管理",
+  "short_name": "大会注文",
+  "start_url": "/taikai/",
+  "scope": "/taikai/",
+  "display": "standalone",
+  "background_color": "#0b151c",
+  "theme_color": "#0b151c",
+  "icons": [
+    {
+      "src": "/taikai/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/taikai/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
