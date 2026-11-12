@@ -257,75 +257,188 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
   });
 
   const updateItem = (id: string, patch: Partial<DraftOrderItem>) => setItems(current => current.map(item => item.id === id ? { ...item, ...patch } : item));
-  const handleScan = (file?: File) => {
-    if (!file) return;
-    setScanFile(file);
-    const reader = new FileReader();
-    reader.onload = () => setScanPreview(String(reader.result));
-    reader.readAsDataURL(file);
-  };
+ const handleScan = (file?: File) => {
+  if (!file) return;
 
-  const runImageOcr = async () => {
-    if (!scanFile || !scanPreview) {
-      toast.error("先に注文メモの写真を選択してください");
-      return;
-    }
-    if (scanFile.size > 6 * 1024 * 1024) {
-      toast.error("画像サイズが大きすぎます", { description: "6MB以下の画像を選択してください。" });
-      return;
-    }
-    if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(scanFile.type)) {
-      toast.error("この画像形式は読み取れません", { description: "JPEG・PNG・WebP・HEIC画像を選択してください。" });
-      return;
-    }
-    setScanBusy(true);
-    try {
-      const base64 = scanPreview.includes(",") ? scanPreview.split(",", 2)[1] : scanPreview;
-      const parsed = await api.ai.parseImage({ imageBase64: base64, mimeType: scanFile.type });
-      if (parsed.customerName) setCustomerName(parsed.customerName);
-      if (parsed.phone) setPhone(parsed.phone);
-      if (parsed.postalCode) setPostalCode(parsed.postalCode);
-      if (parsed.address) setAddress(parsed.address);
-      if (parsed.notes) setNotes(parsed.notes);
-      if (parsed.deliveryEnabled) setDeliveryEnabled(true);
-      if (parsed.shippingRegion && shippingOptions.some(([region]) => region === parsed.shippingRegion)) setShippingRegion(parsed.shippingRegion);
-      if (parsed.recognizedText) setOcrText(parsed.recognizedText);
-      const extractedItems = Array.isArray(parsed.items) ? parsed.items : [];
-      const validItems = extractedItems.filter((item: any) => String(item.name || "").trim());
-      if (validItems.length) {
-        setItems(validItems.map((item: any, index: number) => {
-          const base = makeItem();
-          const recognizedColor = String(item.embroideryColor || "").trim();
-          const matchedColor = embroideryColors.find(([number, name]) => {
-            const full = `${String(number).padStart(2, "0")} ${name}`;
-            return recognizedColor === full || recognizedColor.includes(name);
-          });
-          return {
-            ...base,
-            id: `ai-${Date.now()}-${index}`,
-            name: String(item.name || ""),
-            price: Math.max(0, Number(item.price) || 0),
-            quantity: Number(item.quantity) > 0 ? Math.floor(Number(item.quantity)) : "",
-            embroidery: item.embroidery === true,
-            embroideryText: String(item.embroideryText || ""),
-            embroideryColor: matchedColor ? `${String(matchedColor[0]).padStart(2, "0")} ${matchedColor[1]}` : base.embroideryColor,
-            embroideryPrice: Math.max(0, Number(item.embroideryPrice) || 0),
-            handedOver: false,
-          };
-        }));
+  setScanJobId("");
+  setScanFile(file);
+  setOcrText("");
+
+  const reader = new FileReader();
+  reader.onload = () => setScanPreview(String(reader.result));
+  reader.readAsDataURL(file);
+};
+
+
+const runImageOcr = async () => {
+  if (!scanFile || !scanPreview) {
+    toast.error("先に注文メモの写真を選択してください");
+    return;
+  }
+
+  if (scanFile.size > 6 * 1024 * 1024) {
+    toast.error("画像サイズが大きすぎます", {
+      description: "6MB以下の画像を選択してください。"
+    });
+    return;
+  }
+
+  if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(scanFile.type)) {
+    toast.error("この画像形式は読み取れません");
+    return;
+  }
+
+  setScanBusy(true);
+
+  try {
+    let jobId = scanJobId;
+
+    // まだ受付番号がない場合は画像を送信
+    if (!jobId) {
+      const base64 = scanPreview.includes(",")
+        ? scanPreview.split(",", 2)[1]
+        : scanPreview;
+
+      const started = await api.ai.startImage({
+        imageBase64: base64,
+        mimeType: scanFile.type
+      });
+
+      if (!started?.success || !started.jobId) {
+        throw new Error(started?.message || "OCR受付に失敗しました。");
       }
-      const filledCount = [parsed.customerName, parsed.phone, parsed.address, ...validItems.map((item: any) => item.name)].filter(Boolean).length;
-      if (!filledCount) {
-        toast.warning("文字を十分に読み取れませんでした", { description: "写真を明るく撮り直して、文字が大きく写るようにしてください。" });
-      } else {
-        toast.success("AI読み取りが完了しました", { description: `商品${validItems.length}件・お客様情報をフォームに反映しました。内容を確認してください。` });
-      }
-    } catch (error) {
-      toast.error("AI読み取りに失敗しました", { description: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setScanBusy(false);
+
+      jobId = started.jobId;
+      setScanJobId(jobId);
     }
-  };
+
+    toast.success("画像を受け付けました", {
+      description: "AIが注文内容を読み取っています。"
+    });
+
+    let parsed: any = null;
+
+    // バックグラウンド処理の完了を確認
+    for (let i = 0; i < 240; i++) {
+      await new Promise(resolve => window.setTimeout(resolve, 2000));
+
+      const response = await api.ai.getImageResult(jobId);
+
+      if (response.status === "done") {
+        parsed = response.result;
+        break;
+      }
+
+      if (response.status === "failed") {
+        setScanJobId("");
+        throw new Error(
+          response.error || "AI画像読み取りに失敗しました。"
+        );
+      }
+    }
+
+    // 8分以内に完了しなかった場合
+    if (!parsed) {
+      toast.warning("AI読み取りを継続しています", {
+        description: "もう一度ボタンを押すと、同じ処理の結果を確認できます。"
+      });
+      return;
+    }
+
+    setScanJobId("");
+
+    // お客様情報を反映
+    if (parsed.customerName) setCustomerName(parsed.customerName);
+    if (parsed.phone) setPhone(parsed.phone);
+    if (parsed.postalCode) setPostalCode(parsed.postalCode);
+    if (parsed.address) setAddress(parsed.address);
+    if (parsed.notes) setNotes(parsed.notes);
+
+    if (parsed.deliveryEnabled) {
+      setDeliveryEnabled(true);
+    }
+
+    if (
+      parsed.shippingRegion &&
+      shippingOptions.some(([region]) => region === parsed.shippingRegion)
+    ) {
+      setShippingRegion(parsed.shippingRegion);
+    }
+
+    if (parsed.recognizedText) {
+      setOcrText(parsed.recognizedText);
+    }
+
+    // 商品情報を反映
+    const extractedItems = Array.isArray(parsed.items)
+      ? parsed.items
+      : [];
+
+    const validItems = extractedItems.filter(
+      (item: any) => String(item.name || "").trim()
+    );
+
+    if (validItems.length) {
+      setItems(validItems.map((item: any, index: number) => {
+        const base = makeItem();
+        const recognizedColor = String(item.embroideryColor || "").trim();
+
+        const matchedColor = embroideryColors.find(([number, name]) => {
+          const full = `${String(number).padStart(2, "0")} ${name}`;
+          return recognizedColor === full || recognizedColor.includes(name);
+        });
+
+        return {
+          ...base,
+          id: `ai-${Date.now()}-${index}`,
+          name: String(item.name || "").trim(),
+          price: Math.max(0, Number(item.price) || 0),
+          quantity:
+            item.quantity == null || Number(item.quantity) <= 0
+              ? ""
+              : Math.floor(Number(item.quantity)),
+          embroidery: item.embroidery === true,
+          embroideryText: String(item.embroideryText || ""),
+          embroideryColor: matchedColor
+            ? `${String(matchedColor[0]).padStart(2, "0")} ${matchedColor[1]}`
+            : base.embroideryColor,
+          embroideryPrice: Math.max(0, Number(item.embroideryPrice) || 0),
+          handedOver: false
+        };
+      }));
+    }
+
+    const filledCount = [
+      parsed.customerName,
+      parsed.phone,
+      parsed.address,
+      ...validItems.map((item: any) => item.name)
+    ].filter(Boolean).length;
+
+    if (!filledCount) {
+      toast.warning("文字を十分に読み取れませんでした", {
+        description: "写真を明るく撮り直してください。"
+      });
+    } else {
+      toast.success("AI読み取りが完了しました", {
+        description: `商品${validItems.length}件・お客様情報を反映しました。内容を確認してください。`
+      });
+    }
+
+  } catch (error) {
+    toast.error("AI読み取りに失敗しました", {
+      description: error instanceof Error
+        ? error.message
+        : String(error)
+    });
+  } finally {
+    setScanBusy(false);
+  }
+};
+
+
+
+  
   const save = () => {
     if (!customerName.trim() || !phone.trim() || items.some(item => !item.name.trim())) {
       toast.error("お名前・電話番号・商品名を入力してください"); return;
