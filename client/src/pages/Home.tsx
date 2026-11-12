@@ -178,6 +178,7 @@ function ItemCard({
 }
 
 function NewOrder({ onSaved }: { onSaved: () => void }) {
+  const [scanJobId, setScanJobId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [postalCode, setPostalCode] = useState("");
@@ -387,7 +388,9 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
               {scanPreview ? <img src={scanPreview} alt="読み取りメモのプレビュー" /> : <><FileImage size={25} /><strong>メモ画像を選択</strong><span>撮影画像・スキャン画像を端末から選択</span></>}
               <input ref={scanInput} type="file" accept="image/*" hidden onChange={e => handleScan(e.target.files?.[0])} />
             </div>
-            <div className="scan-text-wrap"><label className="field"><span className="field-label">AI読み取り結果</span><textarea value={ocrText} onChange={e => setOcrText(e.target.value)} placeholder="写真を選択して「AI読み取り・フォーム反映」を押してください" rows={4} /></label><p className="privacy-note"><ShieldCheck size={13} /> 写真はGemini AIで解析します。読み取り結果を確認・修正してから保存してください。</p><Button type="button" className="scan-button" onClick={runImageOcr} disabled={!scanFile || scanBusy}>{scanBusy ? <><RefreshCw size={16} className="spin" />AI読み取り中…</> : <><Sparkles size={16} />AI読み取り・フォーム反映</>}</Button></div>
+            <div className="scan-text-wrap"><label className="field"><span className="field-label">AI読み取り結果</span><textarea value={ocrText} onChange={e => setOcrText(e.target.value)} placeholder="写真を選択して「AI読み取り・フォーム反映」を押してください" rows={4} /></label><p className="privacy-note"><ShieldCheck size={13} /> 写真はGemini AIで解析します。読み取り結果を確認・修正してから保存してください。</p><Button type="button" className="scan-button" onClick={runImageOcr} disabled={!scanFile || scanBusy}>{scanBusy
+  ? <><RefreshCw size={16} className="spin" />AI読み取り中…</>
+  : <><Sparkles size={16} />{scanJobId ? "読み取り結果を確認" : "AI読み取り・フォーム反映"}</>}</Button></div>
           </div>
         </div>
 
