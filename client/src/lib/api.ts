@@ -110,11 +110,16 @@ export const api = {
       return callApi("auth.setStaffActive", input);
     },
   },
+
   ai: {
-    parseImage(input: { imageBase64: string; mimeType: string }) {
-      return callApi<any>("ai.parseImage", input);
+    startImage(input: { imageBase64: string; mimeType: string }) {
+      return callApi<any>("ai.startImage", input);
+    },
+    getImageResult(jobId: string) {
+      return callApi<any>("ai.getImageResult", { jobId });
     },
   },
+
   orders: {
     async list(): Promise<ApiOrder[]> {
       const r = await callApi<any>("orders.list");
