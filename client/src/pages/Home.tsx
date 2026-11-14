@@ -275,7 +275,7 @@ function ItemCard({
             <button type="button" className={item.embroidery ? "active" : ""} onClick={() => onChange({ embroidery: true })}>あり</button>
           </div>
         </div>
-        <div className="item-subtotal">単価 {yen(item.price + (item.embroidery ? item.embroideryPrice : 0))} × {item.quantity === "" ? "—" : `${item.quantity}点`}　小計 <strong>{yen((item.price + (item.embroidery ? item.embroideryPrice : 0)) * (Number(item.quantity) || 0))}</strong></div>
+        <div className="item-subtotal"><span>商品代 {yen(item.price * (Number(item.quantity) || 0))}</span>{item.embroidery && <span>刺繍代 {yen(item.embroideryPrice * (Number(item.quantity) || 0))}</span>}<span>小計 <strong>{yen((item.price + (item.embroidery ? item.embroideryPrice : 0)) * (Number(item.quantity) || 0))}</strong></span></div>
       </div>
       {item.embroidery && (
         <div className="embroidery-detail">
@@ -381,7 +381,9 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
   }, [postalCode, address]);
 
   const shippingAmount = shippingOptions.find(([region]) => region === shippingRegion)?.[1] ?? 0;
-  const itemAmount = items.reduce((sum, item) => sum + (item.price + (item.embroidery ? item.embroideryPrice : 0)) * (Number(item.quantity) || 0), 0);
+  const productAmount = items.reduce((sum, item) => sum + item.price * (Number(item.quantity) || 0), 0);
+  const embroideryAmount = items.reduce((sum, item) => sum + (item.embroidery ? item.embroideryPrice : 0) * (Number(item.quantity) || 0), 0);
+  const itemAmount = productAmount + embroideryAmount;
   const totalAmount = itemAmount + (deliveryEnabled ? shippingAmount : 0);
   const createOrder = useMutation({
     mutationFn: api.orders.create,
@@ -582,7 +584,7 @@ const runImageOcr = async () => {
     if (items.some(item => item.quantity === "" || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) {
       toast.error("商品の数量を1以上の整数で入力してください"); return;
     }
-    const savedItems: OrderItem[] = items.map(item => ({ ...item, quantity: Number(item.quantity), embroideryPrice: item.embroidery ? Math.max(0, Number(item.embroideryUnitPrice) || 0) * Math.max(0, Number(item.embroideryCharacterCount) || 0) : item.embroideryPrice }));
+    const savedItems: OrderItem[] = items.map(item => ({ ...item, quantity: Number(item.quantity), embroideryPrice: item.embroidery ? ((Number(item.embroideryUnitPrice) || 0) > 0 ? Math.max(0, Number(item.embroideryUnitPrice) || 0) * Math.max(0, Number(item.embroideryCharacterCount) || 0) : Math.max(0, Number(item.embroideryPrice) || 0)) : 0 }));
     createOrder.mutate({ phone, customerName, address, items: savedItems, deliveryEnabled, shippingRegion: shippingRegion || null, shippingAmount: deliveryEnabled ? shippingAmount : 0, totalAmount, notes });
   };
   const resetSampleZoom = () => { setSampleZoom(1); setSamplePan({ x: 0, y: 0 }); };
@@ -658,7 +660,7 @@ const runImageOcr = async () => {
       <aside className="summary-column">
         <div className="summary-card">
           <div className="summary-top"><div><p className="eyebrow cyan">ORDER SUMMARY</p><h2>注文の確認</h2></div><div className="live-dot"><span /> LIVE</div></div>
-          <div className="summary-lines"><div><span>商品小計</span><strong>{yen(itemAmount)}</strong></div>{deliveryEnabled && <div><span>送料 / {shippingRegion}</span><strong>{yen(shippingAmount)}</strong></div>}</div>
+          <div className="summary-lines"><div><span>商品代</span><strong>{yen(productAmount)}</strong></div><div><span>刺繍代</span><strong>{yen(embroideryAmount)}</strong></div>{deliveryEnabled && <div><span>送料 / {shippingRegion}</span><strong>{yen(shippingAmount)}</strong></div>}</div>
           <div className="total-block"><span>合計金額</span><strong>{yen(totalAmount)}</strong></div>
           <div className="delivery-box"><div className="delivery-head"><div><p className="eyebrow">DELIVERY</p><strong>発送する</strong></div><button type="button" className={`switch ${deliveryEnabled ? "on" : ""}`} onClick={() => setDeliveryEnabled(!deliveryEnabled)} aria-label="発送する切り替え"><span /></button></div>{deliveryEnabled && <div className="shipping-select"><select value={shippingRegion} onChange={e => setShippingRegion(e.target.value)}><option value="">都道府県を選択</option>{shippingOptions.map(([region, amount]) => <option key={region} value={region}>{region}　{yen(amount)}</option>)}</select><small>クリックポスト・ネコポス / 離島除く</small></div>}</div>
           <Button type="button" className="save-button" onClick={save} disabled={createOrder.isPending}><Send size={17} />{createOrder.isPending ? "保存中…" : "この注文を保存"}</Button>
@@ -705,7 +707,6 @@ function SavedOrders({ onNewOrder }: { onNewOrder: () => void }) {
   const itemHandedOver = useMutation({
     mutationFn: api.orders.setItemHandedOver,
     onMutate: async variables => {
-      await queryClient.cancelQueries({ queryKey: ["orders"] });
       const previous = queryClient.getQueryData<StoredOrder[]>(["orders"]);
       updateItemStatus(String(variables.id), variables.itemIndex, "handedOver", variables.handedOver);
       return { previous };
@@ -719,7 +720,6 @@ function SavedOrders({ onNewOrder }: { onNewOrder: () => void }) {
   const itemPaid = useMutation({
     mutationFn: api.orders.setItemPaid,
     onMutate: async variables => {
-      await queryClient.cancelQueries({ queryKey: ["orders"] });
       const previous = queryClient.getQueryData<StoredOrder[]>(["orders"]);
       updateItemStatus(String(variables.id), variables.itemIndex, "paid", variables.paid);
       return { previous };
@@ -775,7 +775,7 @@ function SavedOrders({ onNewOrder }: { onNewOrder: () => void }) {
           <Button type="button" size="sm" onClick={printSelected} disabled={!selectedOrders.length}><Printer size={15} /> 選択した注文を印刷</Button>
         </div>
       </div>
-      {ordersQuery.isLoading ? <div className="empty-state"><RefreshCw className="spin" /><p>注文を読み込んでいます…</p></div> : groups.length === 0 ? <div className="empty-state"><ClipboardList size={35} /><h3>該当する注文はありません</h3><p>新しい注文を入力するか、検索条件を変更してください。</p></div> : <div className="order-groups">{groups.map(group => { const first = group.orders[0]; const openCount = group.orders.filter(order => !order.handedOver).length; return <article className="order-group" key={group.phone}><div className="group-head"><div className="group-person"><div className="avatar">{first.customerName.slice(0, 1) || "?"}</div><div><p className="eyebrow">PHONE / 注文番号</p><h3>{group.phone}</h3><span>{first.customerName} ・ {group.orders.length}件の注文</span></div></div><div className="group-actions"><span className={`status-pill ${openCount ? "open" : "done"}`}><span />{openCount ? `${openCount}件 未受け渡し` : "すべて渡し済み"}</span><Button variant="outline" size="sm" type="button" onClick={() => print(group.phone)}><Printer size={15} /> A4印刷</Button></div></div><div className="group-orders">{group.orders.map(order => <div className="order-row" key={order.id}><div className="order-row-main"><label className="order-print-check" aria-label={`注文 ${order.id} を印刷対象にする`}><input type="checkbox" checked={printOrderIds.includes(String(order.id))} onChange={() => togglePrintOrder(String(order.id))} /><span /></label><div className="order-id">#{String(order.id).padStart(4, "0")}</div><div className="order-main-content"><strong>{order.items.map(item => `${item.name || "商品未入力"} ×${Math.max(1, item.quantity || 1)}`).join(" / ")}</strong><span>{new Date(order.createdAt).toLocaleString("ja-JP")} ・ {order.deliveryEnabled ? `発送 ${order.shippingRegion}` : "会場受け取り"}</span><div className="order-item-handover-list">{order.items.map((item, itemIndex) => <div className="order-item-handover" key={item.id || itemIndex}><span>{item.name || "商品未入力"} ×{Math.max(1, item.quantity || 1)}{item.embroidery ? ` / 刺繍 ${item.embroiderySize || "通常"}` : ""}</span><Button type="button" size="sm" className={item.handedOver ? "handed-button done" : "handed-button"} onClick={() => itemHandedOver.mutate({ id: String(order.id), itemIndex, handedOver: !item.handedOver })}>{item.handedOver ? <><Check size={14} /> 渡し済み</> : <><PackageCheck size={14} /> 未渡し・渡す</>}</Button><Button type="button" size="sm" className={item.paid ? "paid-button done" : "paid-button"} onClick={() => itemPaid.mutate({ id: String(order.id), itemIndex, paid: !item.paid })}>{item.paid ? "支払い済み" : "未払い"}</Button></div>)}</div></div></div><div className="order-row-total">{yen(order.totalAmount)}</div></div>)}</div></article>; })}</div>}
+      {ordersQuery.isLoading ? <div className="empty-state"><RefreshCw className="spin" /><p>注文を読み込んでいます…</p></div> : groups.length === 0 ? <div className="empty-state"><ClipboardList size={35} /><h3>該当する注文はありません</h3><p>新しい注文を入力するか、検索条件を変更してください。</p></div> : <div className="order-groups">{groups.map(group => { const first = group.orders[0]; const openCount = group.orders.filter(order => !order.handedOver).length; return <article className="order-group" key={group.phone}><div className="group-head"><div className="group-person"><div className="avatar">{first.customerName.slice(0, 1) || "?"}</div><div><p className="eyebrow">PHONE / 注文番号</p><h3>{group.phone}</h3><span>{first.customerName} ・ {group.orders.length}件の注文</span></div></div><div className="group-actions"><span className={`status-pill ${openCount ? "open" : "done"}`}><span />{openCount ? `${openCount}件 未受け渡し` : "すべて渡し済み"}</span><Button variant="outline" size="sm" type="button" onClick={() => print(group.phone)}><Printer size={15} /> A4印刷</Button></div></div><div className="group-orders">{group.orders.map(order => <div className="order-row" key={order.id}><div className="order-row-main"><label className="order-print-check" aria-label={`注文 ${order.id} を印刷対象にする`}><input type="checkbox" checked={printOrderIds.includes(String(order.id))} onChange={() => togglePrintOrder(String(order.id))} /><span /></label><div className="order-id">#{String(order.id).padStart(4, "0")}</div><div className="order-main-content"><strong>{order.items.map(item => `${item.name || "商品未入力"} ×${Math.max(1, item.quantity || 1)}`).join(" / ")}</strong><span>{new Date(order.createdAt).toLocaleString("ja-JP")} ・ {order.deliveryEnabled ? `発送 ${order.shippingRegion}` : "会場受け取り"}</span><div className="order-item-handover-list">{order.items.map((item, itemIndex) => <div className="order-item-handover" key={item.id || itemIndex}><span>{item.name || "商品未入力"} ×{Math.max(1, item.quantity || 1)}{item.embroidery ? ` / 刺繍 ${item.embroiderySize || "通常"}` : ""}<small className="order-item-price">商品代 {yen((Number(item.price) || 0) * Math.max(1, item.quantity || 1))}{item.embroidery ? ` ／ 刺繍代 ${yen((Number(item.embroideryPrice) || 0) * Math.max(1, item.quantity || 1))}` : ""}</small></span><Button type="button" size="sm" className={item.handedOver ? "handed-button done" : "handed-button"} onClick={() => itemHandedOver.mutate({ id: String(order.id), itemIndex, handedOver: !item.handedOver })}>{item.handedOver ? <><Check size={14} /> 渡し済み</> : <><PackageCheck size={14} /> 未渡し・渡す</>}</Button><Button type="button" size="sm" className={item.paid ? "paid-button done" : "paid-button"} onClick={() => itemPaid.mutate({ id: String(order.id), itemIndex, paid: !item.paid })}>{item.paid ? "支払い済み" : "未払い"}</Button></div>)}</div></div></div><div className="order-row-total">{yen(order.totalAmount)}</div></div>)}</div></article>; })}</div>}
       {printGroups.map(({ phone, orders: groupPrintOrders }) => {
         const printCustomer = groupPrintOrders[0];
         return <div className="print-sheet" key={phone}>
