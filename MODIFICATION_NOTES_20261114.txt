@@ -1,0 +1,22 @@
+大会注文管理アプリ 改修メモ（2026-11-14）
+
+今回反映した内容
+- 新規注文の刺繍欄に「1文字あたりの刺繍単価」「文字数」「刺繍料金（自動計算）」を追加。
+- 刺繍料金は単価×文字数で計算し、商品単価・注文合計に反映。
+- 注文データには従来互換の embroideryPrice（計算後の金額）に加え、embroideryUnitPrice / embroideryCharacterCount を保持。
+- 注文印刷にも刺繍文字数を表示。
+
+未反映（追加ファイルが必要）
+- 商品名・価格タグの追加／編集／削除とスタッフ間共有
+- ログイン・注文読み込みのサーバー側高速化
+
+理由
+client/src/lib/api.ts の実際の接続先は Cloudflare Worker:
+https://still-voice-2835taikai-api.hs-0319yu.workers.dev/
+今回のZIPには server/ のソースは含まれていますが、フロントエンドは上記WorkerへAPIリクエストを送っており、server/ のExpress/tRPCコードを直接呼び出していません。Worker本体のソースコード・設定・DB定義がZIPに含まれていないため、スタッフ全員で共有するタグ保存APIやログイン処理の高速化は、このZIPだけでは安全に変更できません。
+
+次に必要なもの
+Cloudflare Dashboard またはGitHub等にある上記Workerのソース一式（index/worker entrypoint、wrangler.tomlまたはwrangler.jsonc、D1/KV等のDBスキーマ・マイグレーションを含む）をZIPでアップロードしてください。
+
+注意
+今回のZIPは刺繍文字数計算のフロントエンド変更を反映した途中版です。既存の本番Workerへデプロイする前に、Worker側が注文items内の追加項目をそのまま保存することを確認してください。

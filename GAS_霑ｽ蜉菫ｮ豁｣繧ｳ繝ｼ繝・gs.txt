@@ -1,0 +1,206 @@
+【適用方法】
+1. 既存のGoogle Apps Script（Code.gs）をバックアップしてください。
+2. このファイル内の「A. 追加する関数」を、既存Code.gsのAPI入口（function doPost）より前に追加してください。
+3. 既存のdoPost内switchに「B. 追加するcase」の4行を追加してください。
+4. 既存のapiCreateOrder_関数を「C. 置き換える関数」全体で置き換えてください。
+5. 保存後、デプロイ > デプロイを管理 > 編集 > 新バージョン > デプロイ。
+
+※既存の注文シート・スタッフシート・ログイン認証・注文履歴は削除しません。
+※商品タグは「商品タグ」シートを初回API利用時に自動作成します。
+※タグの追加・編集・削除は管理者のみ。全スタッフは登録済みタグを注文入力で利用できます。
+
+==================== A. 追加する関数 ====================
+
+// ---------- 共有商品タグ API ----------
+function apiEnsureProductTagsSheet_() {
+  const ss = apiDb_();
+  let sheet = ss.getSheetByName('商品タグ');
+  if (!sheet) {
+    sheet = ss.insertSheet('商品タグ');
+    sheet.getRange(1, 1, 1, 6).setValues([[
+      'タグID', '商品名', '税込価格', '有効', '作成日時', '更新日時'
+    ]]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, 6)
+      .setFontWeight('bold')
+      .setBackground('#1f4e78')
+      .setFontColor('#ffffff');
+  }
+  return sheet;
+}
+
+function apiProductTagsList_(body) {
+  apiRequireSession_(body);
+  const sheet = apiEnsureProductTagsSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { success: true, tags: [] };
+  const values = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
+  const tags = values
+    .filter(row => row[0] && row[3] !== false)
+    .map(row => ({
+      id: String(row[0]),
+      name: String(row[1] || ''),
+      price: Math.max(0, Number(row[2]) || 0),
+      active: row[3] !== false
+    }));
+  return { success: true, tags: tags };
+}
+
+function apiProductTagCreate_(body) {
+  apiRequireAdmin_(body);
+  const name = apiText_(body.name);
+  const price = Number(body.price);
+  if (!name) throw new Error('商品名を入力してください。');
+  if (!Number.isFinite(price) || price < 0) throw new Error('価格は0以上の数字で入力してください。');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = apiEnsureProductTagsSheet_();
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const names = sheet.getRange(2, 2, lastRow - 1, 1).getDisplayValues().flat();
+      if (names.some(value => apiText_(value).toLowerCase() === name.toLowerCase())) {
+        throw new Error('同じ商品名のタグが既に登録されています。編集から価格を変更してください。');
+      }
+    }
+    const now = apiNow_();
+    const id = apiUuid_();
+    sheet.appendRow([id, name, Math.floor(price), true, now, now]);
+    return { success: true, id: id };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function apiProductTagUpdate_(body) {
+  apiRequireAdmin_(body);
+  const id = apiText_(body.id);
+  const name = apiText_(body.name);
+  const price = Number(body.price);
+  if (!id) throw new Error('タグIDがありません。');
+  if (!name) throw new Error('商品名を入力してください。');
+  if (!Number.isFinite(price) || price < 0) throw new Error('価格は0以上の数字で入力してください。');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = apiEnsureProductTagsSheet_();
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) throw new Error('商品タグが見つかりません。');
+    const values = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
+    let targetRow = 0;
+    for (let i = 0; i < values.length; i++) {
+      if (String(values[i][0]) === id) targetRow = i + 2;
+      else if (values[i][3] !== false && apiText_(values[i][1]).toLowerCase() === name.toLowerCase()) {
+        throw new Error('同じ商品名のタグが既に登録されています。');
+      }
+    }
+    if (!targetRow) throw new Error('商品タグが見つかりません。');
+    sheet.getRange(targetRow, 2, 1, 1).setValue(name);
+    sheet.getRange(targetRow, 3, 1, 1).setValue(Math.floor(price));
+    sheet.getRange(targetRow, 6, 1, 1).setValue(apiNow_());
+    return { success: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function apiProductTagDelete_(body) {
+  apiRequireAdmin_(body);
+  const id = apiText_(body.id);
+  if (!id) throw new Error('タグIDがありません。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = apiEnsureProductTagsSheet_();
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) throw new Error('商品タグが見つかりません。');
+    const match = sheet.getRange(2, 1, lastRow - 1, 1)
+      .createTextFinder(id)
+      .matchEntireCell(true)
+      .matchCase(true)
+      .findNext();
+    if (!match) throw new Error('商品タグが見つかりません。');
+    sheet.deleteRow(match.getRow());
+    return { success: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+==================== B. doPost のswitchに追加 ====================
+
+case 'productTags.list': result = apiProductTagsList_(body); break;
+case 'productTags.create': result = apiProductTagCreate_(body); break;
+case 'productTags.update': result = apiProductTagUpdate_(body); break;
+case 'productTags.delete': result = apiProductTagDelete_(body); break;
+
+==================== C. apiCreateOrder_ を以下で置き換え ====================
+
+function apiCreateOrder_(body) {
+  const session = apiRequireSession_(body);
+  const order = body.order || {};
+  const customerName = apiText_(order.customerName);
+  const phone = apiText_(order.phone);
+  const sourceItems = Array.isArray(order.items) ? order.items : [];
+  if (!customerName) throw new Error('お客様名を入力してください。');
+  if (!sourceItems.length) throw new Error('商品を1つ以上入力してください。');
+
+  const items = sourceItems.map(item => {
+    const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
+    const embroidery = item.embroidery === true;
+    const unitPrice = Math.max(0, Number(item.embroideryUnitPrice) || 0);
+    const characterCount = item.embroideryCharacterCount == null
+      ? 1
+      : Math.max(0, Math.floor(Number(item.embroideryCharacterCount) || 0));
+    // 新画面は「1文字単価×文字数」でサーバー側でも再計算。
+    // 旧画面からの注文で単価情報がない場合は、従来のembroideryPriceを維持。
+    const hasCharacterPricing = item.embroideryUnitPrice != null && item.embroideryCharacterCount != null;
+    const embroideryPrice = embroidery
+      ? (hasCharacterPricing ? unitPrice * characterCount : Math.max(0, Number(item.embroideryPrice) || 0))
+      : 0;
+
+    return {
+      ...item,
+      quantity: quantity,
+      embroidery: embroidery,
+      embroiderySize: ['通常', '2.5cm', '3cm'].includes(String(item.embroiderySize || ''))
+        ? String(item.embroiderySize)
+        : '通常',
+      embroideryUnitPrice: unitPrice,
+      embroideryCharacterCount: characterCount,
+      embroideryPrice: embroideryPrice,
+      handedOver: false
+    };
+  });
+
+  const deliveryEnabled = order.deliveryEnabled === true;
+  const shippingAmount = Math.max(0, Number(order.shippingAmount || 0));
+  // 刺繍料金は文字数計算後の金額を加算。税率の再加算はしない。
+  const calculatedItems = items.reduce((sum, item) => {
+    const basePrice = Math.max(0, Number(item.price) || 0);
+    const embroideryPrice = item.embroidery ? Math.max(0, Number(item.embroideryPrice) || 0) : 0;
+    return sum + (basePrice + embroideryPrice) * item.quantity;
+  }, 0);
+  const totalAmount = calculatedItems + (deliveryEnabled ? shippingAmount : 0);
+  const now = apiNow_();
+  const orderId = 'TK-' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd-HHmmss') + '-' + Math.floor(Math.random() * 1000);
+
+  apiDb_().getSheetByName('注文').appendRow([
+    orderId, phone, customerName, apiText_(order.address), JSON.stringify(items), deliveryEnabled,
+    apiText_(order.shippingRegion), deliveryEnabled ? shippingAmount : 0, totalAmount, false,
+    apiText_(order.notes), session.name, now, now
+  ]);
+  return { success: true, orderId: orderId, totalAmount: totalAmount };
+}
+
+==================== D. 動作確認 ====================
+
+・管理者でログインし、画面上部の「商品タグ管理」を開く。
+・商品名と価格を登録し、編集・削除も確認する。
+・スタッフアカウントでログインし、新規注文の商品名欄から登録タグを選択する。
+・刺繍あり、1文字単価200円、文字数2を入力し、刺繍料金400円になることを確認する。
+・注文保存後、注文合計に400円が含まれることを確認する。
+
+※既存の注文履歴には変更を加えません。新しい注文から文字数・単価情報が保存されます。
