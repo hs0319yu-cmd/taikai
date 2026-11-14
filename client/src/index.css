@@ -370,3 +370,7 @@ h3 { font-size: 15px; letter-spacing: .01em; }
   .order-item-handover .handed-button,
   .order-item-handover .paid-button { flex: 1 1 auto; justify-content: center; }
 }
+
+
+/* 注文履歴：商品代と刺繍代を明確に分けて表示 */
+.order-item-price { display: block; margin-top: 3px; color: var(--muted-foreground, #64748b); font-size: 0.78rem; line-height: 1.45; }
