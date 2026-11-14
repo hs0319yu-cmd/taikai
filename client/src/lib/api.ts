@@ -3,9 +3,10 @@ const TOKEN_KEY = "taikai_session_token";
 
 export type ApiUser = { staffId: string; email: string; name: string; role: "admin" | "staff" };
 export type ApiStaff = { id: string; email: string; name: string; role: "admin" | "staff"; isActive: boolean };
+export type ApiProductTag = { id: string; name: string; price: number; active: boolean };
 export type ApiOrderItem = {
   id: string; name: string; price: number; quantity: number; embroidery: boolean;
-  embroideryText: string; embroideryColor: string; embroideryPrice: number; handedOver: boolean;
+  embroideryText: string; embroideryColor: string; embroideryPrice: number; embroideryUnitPrice?: number; embroideryCharacterCount?: number; handedOver: boolean;
 };
 export type ApiOrder = {
   id: string; orderId: string; phone: string; customerName: string; address: string;
@@ -53,6 +54,9 @@ function normalizeOrder(raw: any): ApiOrder {
     items: Array.isArray(raw.items) ? raw.items.map((item: any) => ({
       ...item,
       quantity: Math.max(1, Number(item.quantity) || 1),
+      embroideryPrice: Math.max(0, Number(item.embroideryPrice) || 0),
+      embroideryUnitPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0),
+      embroideryCharacterCount: Math.max(0, Math.floor(Number(item.embroideryCharacterCount) || 1)),
       // 旧データは注文全体の引き渡し状態を商品へ引き継ぐ
       handedOver: typeof item.handedOver === "boolean" ? item.handedOver : orderHandedOver,
     })) : [],
@@ -120,6 +124,15 @@ export const api = {
     },
   },
 
+  productTags: {
+    async list(): Promise<ApiProductTag[]> {
+      const r = await callApi<any>("productTags.list");
+      return (r.tags ?? []).map((tag: any) => ({ id: String(tag.id), name: String(tag.name || ""), price: Math.max(0, Number(tag.price) || 0), active: tag.active !== false }));
+    },
+    create(input: { name: string; price: number }) { return callApi("productTags.create", input); },
+    update(input: { id: string; name: string; price: number }) { return callApi("productTags.update", input); },
+    remove(id: string) { return callApi("productTags.delete", { id }); },
+  },
   orders: {
     async list(): Promise<ApiOrder[]> {
       const r = await callApi<any>("orders.list");
