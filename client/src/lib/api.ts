@@ -127,12 +127,12 @@ export const api = {
 
   productTags: {
     async list(): Promise<ApiProductTag[]> {
-      const r = await callApi<any>("productTags.list");
+      const r = await callApi<any>("tags.list");
       return (r.tags ?? []).map((tag: any) => ({ id: String(tag.id), name: String(tag.name || ""), price: Math.max(0, Number(tag.price) || 0), active: tag.active !== false }));
     },
-    create(input: { name: string; price: number }) { return callApi("productTags.create", input); },
-    update(input: { id: string; name: string; price: number }) { return callApi("productTags.update", input); },
-    remove(id: string) { return callApi("productTags.delete", { id }); },
+    create(input: { name: string; price: number }) { return callApi("tags.create", input); },
+    update(input: { id: string; name: string; price: number }) { return callApi("tags.update", { tagId: input.id, name: input.name, price: input.price }); },
+    remove(id: string) { return callApi("tags.delete", { tagId: id }); },
   },
   orders: {
     async list(): Promise<ApiOrder[]> {
