@@ -235,6 +235,9 @@ function ItemCard({
   onOpenSample: () => void;
   tags: ApiProductTag[];
 }) {
+  // 数字入力中に空欄を許可し、スマホで先頭の0が残る問題を防ぐ
+  const [embroideryCountText, setEmbroideryCountText] = useState(String(item.embroideryCharacterCount ?? 1));
+
   return (
     <article className="item-card">
       <div className="item-card-head">
@@ -285,7 +288,7 @@ function ItemCard({
               </select>
             </Field>
             <Field label="1文字あたりの刺繍単価（税込）"><div className="input-with-unit"><input type="number" min="0" value={item.embroideryUnitPrice || ""} onChange={e => { const unit = Number(e.target.value) || 0; onChange({ embroideryUnitPrice: unit, embroideryPrice: unit * Math.max(0, Number(item.embroideryCharacterCount) || 0) }); }} placeholder="200" /><span>円</span></div></Field>
-            <Field label="文字数"><input type="number" min="0" step="1" value={item.embroideryCharacterCount ?? 1} onChange={e => { const count = Math.max(0, Math.floor(Number(e.target.value) || 0)); onChange({ embroideryCharacterCount: count, embroideryPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0) * count }); }} placeholder="例：2" /></Field>
+            <Field label="文字数"><input type="text" inputMode="numeric" pattern="[0-9]*" value={embroideryCountText} onChange={e => { const raw = e.target.value.replace(/[^0-9]/g, ""); setEmbroideryCountText(raw); if (raw !== "") { const count = Number(raw); onChange({ embroideryCharacterCount: count, embroideryPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0) * count }); } }} onBlur={() => { const count = embroideryCountText === "" ? (item.embroideryCharacterCount ?? 1) : Number(embroideryCountText); const normalized = String(count); setEmbroideryCountText(normalized); onChange({ embroideryCharacterCount: count, embroideryPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0) * count }); }} placeholder="例：2" /></Field>
             <div className="field"><span className="field-label">刺繍料金（税込・自動計算）</span><div className="input-with-unit"><input value={item.embroideryPrice.toLocaleString("ja-JP")} readOnly aria-label="刺繍料金" /><span>円</span></div><small>{yen(item.embroideryUnitPrice || 0)} × {item.embroideryCharacterCount ?? 1}文字</small></div>
           </div>
           <div className="color-pick-area">
