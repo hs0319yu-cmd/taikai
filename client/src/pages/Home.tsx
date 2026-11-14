@@ -682,8 +682,54 @@ function SavedOrders({ onNewOrder }: { onNewOrder: () => void }) {
   const [printOrderIds, setPrintOrderIds] = useState<string[]>([]);
   const queryClient = useQueryClient();
   const ordersQuery = useQuery({ queryKey: ["orders"], queryFn: api.orders.list });
-  const itemHandedOver = useMutation({ mutationFn: api.orders.setItemHandedOver, onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders"] }), onError: (error: Error) => toast.error("引き渡し状態を更新できませんでした", { description: error.message }) });
-  const itemPaid = useMutation({ mutationFn: api.orders.setItemPaid, onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders"] }), onError: (error: Error) => toast.error("支払い状態を更新できませんでした", { description: error.message }) });
+  // 画面を先に更新し、通信はバックグラウンドで行う（楽観的UI更新）
+  const updateItemStatus = (
+    orderId: string,
+    itemIndex: number,
+    field: "handedOver" | "paid",
+    value: boolean
+  ) => {
+    queryClient.setQueryData<StoredOrder[]>(["orders"], current =>
+      current?.map(order =>
+        String(order.id) !== orderId
+          ? order
+          : {
+              ...order,
+              items: order.items.map((item, index) =>
+                index === itemIndex ? { ...item, [field]: value } : item
+              ),
+            }
+      )
+    );
+  };
+  const itemHandedOver = useMutation({
+    mutationFn: api.orders.setItemHandedOver,
+    onMutate: async variables => {
+      await queryClient.cancelQueries({ queryKey: ["orders"] });
+      const previous = queryClient.getQueryData<StoredOrder[]>(["orders"]);
+      updateItemStatus(String(variables.id), variables.itemIndex, "handedOver", variables.handedOver);
+      return { previous };
+    },
+    onError: (error: Error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(["orders"], context.previous);
+      toast.error("引き渡し状態を更新できませんでした", { description: error.message });
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["orders"] }),
+  });
+  const itemPaid = useMutation({
+    mutationFn: api.orders.setItemPaid,
+    onMutate: async variables => {
+      await queryClient.cancelQueries({ queryKey: ["orders"] });
+      const previous = queryClient.getQueryData<StoredOrder[]>(["orders"]);
+      updateItemStatus(String(variables.id), variables.itemIndex, "paid", variables.paid);
+      return { previous };
+    },
+    onError: (error: Error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(["orders"], context.previous);
+      toast.error("支払い状態を更新できませんでした", { description: error.message });
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["orders"] }),
+  });
   const orders = (ordersQuery.data ?? []) as StoredOrder[];
   const filtered = orders.filter(order => {
     const matchesQuery = `${order.phone} ${order.customerName}`.toLowerCase().includes(query.toLowerCase());
@@ -729,7 +775,7 @@ function SavedOrders({ onNewOrder }: { onNewOrder: () => void }) {
           <Button type="button" size="sm" onClick={printSelected} disabled={!selectedOrders.length}><Printer size={15} /> 選択した注文を印刷</Button>
         </div>
       </div>
-      {ordersQuery.isLoading ? <div className="empty-state"><RefreshCw className="spin" /><p>注文を読み込んでいます…</p></div> : groups.length === 0 ? <div className="empty-state"><ClipboardList size={35} /><h3>該当する注文はありません</h3><p>新しい注文を入力するか、検索条件を変更してください。</p></div> : <div className="order-groups">{groups.map(group => { const first = group.orders[0]; const openCount = group.orders.filter(order => !order.handedOver).length; return <article className="order-group" key={group.phone}><div className="group-head"><div className="group-person"><div className="avatar">{first.customerName.slice(0, 1) || "?"}</div><div><p className="eyebrow">PHONE / 注文番号</p><h3>{group.phone}</h3><span>{first.customerName} ・ {group.orders.length}件の注文</span></div></div><div className="group-actions"><span className={`status-pill ${openCount ? "open" : "done"}`}><span />{openCount ? `${openCount}件 未受け渡し` : "すべて渡し済み"}</span><Button variant="outline" size="sm" type="button" onClick={() => print(group.phone)}><Printer size={15} /> A4印刷</Button></div></div><div className="group-orders">{group.orders.map(order => <div className="order-row" key={order.id}><div className="order-row-main"><label className="order-print-check" aria-label={`注文 ${order.id} を印刷対象にする`}><input type="checkbox" checked={printOrderIds.includes(String(order.id))} onChange={() => togglePrintOrder(String(order.id))} /><span /></label><div className="order-id">#{String(order.id).padStart(4, "0")}</div><div className="order-main-content"><strong>{order.items.map(item => `${item.name || "商品未入力"} ×${Math.max(1, item.quantity || 1)}`).join(" / ")}</strong><span>{new Date(order.createdAt).toLocaleString("ja-JP")} ・ {order.deliveryEnabled ? `発送 ${order.shippingRegion}` : "会場受け取り"}</span><div className="order-item-handover-list">{order.items.map((item, itemIndex) => <div className="order-item-handover" key={item.id || itemIndex}><span>{item.name || "商品未入力"} ×{Math.max(1, item.quantity || 1)}{item.embroidery ? ` / 刺繍 ${item.embroiderySize || "通常"}` : ""}</span><Button type="button" size="sm" className={item.handedOver ? "handed-button done" : "handed-button"} disabled={itemHandedOver.isPending} onClick={() => itemHandedOver.mutate({ id: String(order.id), itemIndex, handedOver: !item.handedOver })}>{item.handedOver ? <><Check size={14} /> 渡し済み</> : <><PackageCheck size={14} /> 未渡し・渡す</>}</Button><Button type="button" size="sm" className={item.paid ? "paid-button done" : "paid-button"} disabled={itemPaid.isPending} onClick={() => itemPaid.mutate({ id: String(order.id), itemIndex, paid: !item.paid })}>{item.paid ? "支払い済み" : "未払い"}</Button></div>)}</div></div></div><div className="order-row-total">{yen(order.totalAmount)}</div></div>)}</div></article>; })}</div>}
+      {ordersQuery.isLoading ? <div className="empty-state"><RefreshCw className="spin" /><p>注文を読み込んでいます…</p></div> : groups.length === 0 ? <div className="empty-state"><ClipboardList size={35} /><h3>該当する注文はありません</h3><p>新しい注文を入力するか、検索条件を変更してください。</p></div> : <div className="order-groups">{groups.map(group => { const first = group.orders[0]; const openCount = group.orders.filter(order => !order.handedOver).length; return <article className="order-group" key={group.phone}><div className="group-head"><div className="group-person"><div className="avatar">{first.customerName.slice(0, 1) || "?"}</div><div><p className="eyebrow">PHONE / 注文番号</p><h3>{group.phone}</h3><span>{first.customerName} ・ {group.orders.length}件の注文</span></div></div><div className="group-actions"><span className={`status-pill ${openCount ? "open" : "done"}`}><span />{openCount ? `${openCount}件 未受け渡し` : "すべて渡し済み"}</span><Button variant="outline" size="sm" type="button" onClick={() => print(group.phone)}><Printer size={15} /> A4印刷</Button></div></div><div className="group-orders">{group.orders.map(order => <div className="order-row" key={order.id}><div className="order-row-main"><label className="order-print-check" aria-label={`注文 ${order.id} を印刷対象にする`}><input type="checkbox" checked={printOrderIds.includes(String(order.id))} onChange={() => togglePrintOrder(String(order.id))} /><span /></label><div className="order-id">#{String(order.id).padStart(4, "0")}</div><div className="order-main-content"><strong>{order.items.map(item => `${item.name || "商品未入力"} ×${Math.max(1, item.quantity || 1)}`).join(" / ")}</strong><span>{new Date(order.createdAt).toLocaleString("ja-JP")} ・ {order.deliveryEnabled ? `発送 ${order.shippingRegion}` : "会場受け取り"}</span><div className="order-item-handover-list">{order.items.map((item, itemIndex) => <div className="order-item-handover" key={item.id || itemIndex}><span>{item.name || "商品未入力"} ×{Math.max(1, item.quantity || 1)}{item.embroidery ? ` / 刺繍 ${item.embroiderySize || "通常"}` : ""}</span><Button type="button" size="sm" className={item.handedOver ? "handed-button done" : "handed-button"} onClick={() => itemHandedOver.mutate({ id: String(order.id), itemIndex, handedOver: !item.handedOver })}>{item.handedOver ? <><Check size={14} /> 渡し済み</> : <><PackageCheck size={14} /> 未渡し・渡す</>}</Button><Button type="button" size="sm" className={item.paid ? "paid-button done" : "paid-button"} onClick={() => itemPaid.mutate({ id: String(order.id), itemIndex, paid: !item.paid })}>{item.paid ? "支払い済み" : "未払い"}</Button></div>)}</div></div></div><div className="order-row-total">{yen(order.totalAmount)}</div></div>)}</div></article>; })}</div>}
       {printGroups.map(({ phone, orders: groupPrintOrders }) => {
         const printCustomer = groupPrintOrders[0];
         return <div className="print-sheet" key={phone}>
