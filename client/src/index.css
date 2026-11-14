@@ -204,7 +204,14 @@ h3 { font-size: 15px; letter-spacing: .01em; }
 .auth-loading .brand-lockup { min-width: auto; margin-bottom: 22px; }
 .auth-loading p { font-size: 12px; }
 
-.print-sheet { display: none; }
+
+/* 注文印刷の選択UI */
+.print-selection-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0 14px; padding: 12px 14px; border: 1px solid var(--panel-border); border-radius: 12px; background: rgba(18,42,51,.55); }
+.print-selection-count { color: var(--cyan); font-size: 12px; font-weight: 800; white-space: nowrap; }
+.print-selection-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.order-print-check { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 22px; cursor: pointer; }
+.order-print-check input { width: 18px; height: 18px; margin: 0; accent-color: var(--cyan); cursor: pointer; }
+\n.print-sheet { display: none; }
 @media print {
   @page { size: A4; margin: 13mm; }
   html, body { background: white !important; color: #18252b !important; }
@@ -215,10 +222,12 @@ h3 { font-size: 15px; letter-spacing: .01em; }
   .app-footer { display: none !important; }
   .print-sheet {
     display: block !important;
-    position: absolute;
-    top: 0;
-    left: 0;
+    position: relative;
+    top: auto;
+    left: auto;
     width: 100%;
+    page-break-after: always;
+    break-after: page;
     color: #18252b;
     background: white;
     font-family: Arial, "Noto Sans JP", sans-serif;
@@ -243,6 +252,7 @@ h3 { font-size: 15px; letter-spacing: .01em; }
   .print-item small { display: block; margin-top: 3px; color: #65787e; font-size: 9px; }
   .print-total { border-top: 2px solid #18252b; margin-top: 9px; padding-top: 10px; font-weight: 700; font-size: 12px; }
   .print-footer { margin-top: 28px; padding-top: 13px; border-top: 1px solid #aab8bb; font-size: 10px; color: #65787e; }
+  .print-sheet:last-child { page-break-after: auto; break-after: auto; }
 }
 
 @media (max-width: 980px) {
@@ -266,6 +276,9 @@ h3 { font-size: 15px; letter-spacing: .01em; }
   .scan-upload { min-height: 100px; }
   .summary-column { grid-template-columns: 1fr; }
   .saved-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .print-selection-toolbar { align-items: stretch; flex-direction: column; }
+  .print-selection-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .print-selection-actions button:last-child { grid-column: 1 / -1; }
   .search-box { min-width: 100%; }
   .filter-tabs { flex: 1; }
   .filter-tabs button { flex: 1; padding-left: 4px; padding-right: 4px; }
