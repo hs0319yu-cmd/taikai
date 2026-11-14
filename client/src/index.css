@@ -218,8 +218,8 @@ h3 { font-size: 15px; letter-spacing: .01em; }
   html, body { margin: 0 !important; padding: 0 !important; width: auto !important; background: white !important; color: #18252b !important; }
   /* 画面側の一覧・ヘッダーをレイアウトごと除外し、受注票だけを印刷する */
   body * { display: none !important; }
-  .app-shell, .main-shell, .saved-view, .print-sheet { display: block !important; }
-  .app-shell, .main-shell, .saved-view { width: auto !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+  #root, .app-shell, .main-shell, .saved-view, .print-sheet { display: block !important; }
+  #root, .app-shell, .main-shell, .saved-view { width: auto !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
   .print-sheet, .print-sheet * { display: revert !important; visibility: visible !important; }
   .app-shell, .main-shell, .saved-view { visibility: visible !important; }
   .print-sheet {
