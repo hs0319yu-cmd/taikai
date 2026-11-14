@@ -219,14 +219,19 @@ h3 { font-size: 15px; letter-spacing: .01em; }
   /* 画面側の一覧・ヘッダーをレイアウトごと除外し、受注票だけを印刷する */
   body * { display: none !important; }
   #root, .app-shell, .main-shell, .saved-view, .print-sheet { display: block !important; }
-  #root, .app-shell, .main-shell, .saved-view { width: auto !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+  #root, .app-shell, .main-shell, .saved-view { width: 184mm !important; min-width: 184mm !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
   .print-sheet, .print-sheet * { display: revert !important; visibility: visible !important; }
   .app-shell, .main-shell, .saved-view { visibility: visible !important; }
   .print-sheet {
     position: relative !important;
-    width: 100% !important;
+    /* スマホ印刷でもA4の印字可能幅に固定し、画面幅で縮んだり分割されないようにする */
+    width: 184mm !important;
+    min-width: 184mm !important;
+    max-width: 184mm !important;
     margin: 0 !important;
     padding: 0 !important;
+    page-break-inside: avoid;
+    break-inside: avoid-page;
     page-break-after: always;
     break-after: page;
     color: #18252b;
