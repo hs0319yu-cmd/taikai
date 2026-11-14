@@ -6,7 +6,7 @@ export type ApiStaff = { id: string; email: string; name: string; role: "admin" 
 export type ApiProductTag = { id: string; name: string; price: number; active: boolean };
 export type ApiOrderItem = {
   id: string; name: string; price: number; quantity: number; embroidery: boolean;
-  embroideryText: string; embroideryColor: string; embroideryPrice: number; embroideryUnitPrice?: number; embroideryCharacterCount?: number; handedOver: boolean;
+  embroideryText: string; embroideryColor: string; embroideryPrice: number; embroideryUnitPrice?: number; embroideryCharacterCount?: number; handedOver: boolean; paid?: boolean;
 };
 export type ApiOrder = {
   id: string; orderId: string; phone: string; customerName: string; address: string;
@@ -59,6 +59,7 @@ function normalizeOrder(raw: any): ApiOrder {
       embroideryCharacterCount: Math.max(0, Math.floor(Number(item.embroideryCharacterCount) || 1)),
       // 旧データは注文全体の引き渡し状態を商品へ引き継ぐ
       handedOver: typeof item.handedOver === "boolean" ? item.handedOver : orderHandedOver,
+      paid: item.paid === true,
     })) : [],
     deliveryEnabled: raw.deliveryEnabled === true || raw.deliveryEnabled === "true",
     shippingRegion: raw.shippingRegion || null,
@@ -126,32 +127,12 @@ export const api = {
 
   productTags: {
     async list(): Promise<ApiProductTag[]> {
-      const r = await callApi<any>("tags.list");
-      return (r.tags ?? []).map((tag: any) => ({
-        id: String(tag.id),
-        name: String(tag.name || ""),
-        price: Math.max(0, Number(tag.price) || 0),
-        active: tag.active !== false
-      }));
+      const r = await callApi<any>("productTags.list");
+      return (r.tags ?? []).map((tag: any) => ({ id: String(tag.id), name: String(tag.name || ""), price: Math.max(0, Number(tag.price) || 0), active: tag.active !== false }));
     },
-
-    create(input: { name: string; price: number }) {
-      return callApi("tags.create", input);
-    },
-
-    update(input: { id: string; name: string; price: number }) {
-      return callApi("tags.update", {
-        tagId: input.id,
-        name: input.name,
-        price: input.price
-      });
-    },
-
-    remove(id: string) {
-      return callApi("tags.delete", {
-        tagId: id
-      });
-    },
+    create(input: { name: string; price: number }) { return callApi("productTags.create", input); },
+    update(input: { id: string; name: string; price: number }) { return callApi("productTags.update", input); },
+    remove(id: string) { return callApi("productTags.delete", { id }); },
   },
   orders: {
     async list(): Promise<ApiOrder[]> {
@@ -166,6 +147,9 @@ export const api = {
     },
     setItemHandedOver(input: { id: string; itemIndex: number; handedOver: boolean }) {
       return callApi("orders.setItemHandedOver", { orderId: input.id, itemIndex: input.itemIndex, handedOver: input.handedOver });
+    },
+    setItemPaid(input: { id: string; itemIndex: number; paid: boolean }) {
+      return callApi("orders.setItemPaid", { orderId: input.id, itemIndex: input.itemIndex, paid: input.paid });
     },
   },
 };
