@@ -4,6 +4,7 @@ const TOKEN_KEY = "taikai_session_token";
 export type ApiUser = { staffId: string; email: string; name: string; role: "admin" | "staff" };
 export type ApiStaff = { id: string; email: string; name: string; role: "admin" | "staff"; isActive: boolean };
 export type ApiProductTag = { id: string; name: string; price: number; active: boolean };
+export type ApiShippingRates = Record<string, number>;
 export type ApiOrderItem = {
   id: string; name: string; price: number; quantity: number; embroidery: boolean;
   embroideryText: string; embroideryColor: string; embroideryPrice: number; embroideryUnitPrice?: number; embroideryCharacterCount?: number; handedOver: boolean; paid?: boolean;
@@ -125,6 +126,15 @@ export const api = {
     },
   },
 
+  shipping: {
+    async list(): Promise<ApiShippingRates> {
+      const r = await callApi<any>("shipping.list");
+      return Object.fromEntries(Object.entries(r.shippingRates ?? {}).map(([region, amount]) => [region, Math.max(0, Number(amount) || 0)]));
+    },
+    save(rates: ApiShippingRates) {
+      return callApi("shipping.update", { shippingRates: rates });
+    },
+  },
   productTags: {
     async list(): Promise<ApiProductTag[]> {
       const r = await callApi<any>("tags.list");
