@@ -374,3 +374,14 @@ h3 { font-size: 15px; letter-spacing: .01em; }
 
 /* 注文履歴：商品代と刺繍代を明確に分けて表示 */
 .order-item-price { display: block; margin-top: 3px; color: var(--muted-foreground, #64748b); font-size: 0.78rem; line-height: 1.45; }
+
+/* 数量・刺繍文字数：スマホでも押しやすいステッパー */
+.stepper-control { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: stretch; gap: 6px; width: 100%; }
+.stepper-control input { min-width: 0; text-align: center; padding: 0 6px; font-variant-numeric: tabular-nums; }
+.stepper-button { min-height: 43px; display: grid; place-items: center; border: 1px solid rgba(34,211,197,.28); border-radius: 10px; background: rgba(34,211,197,.1); color: var(--cyan); touch-action: manipulation; }
+.stepper-button:active { background: rgba(34,211,197,.24); transform: scale(.97); }
+@media (max-width: 600px) {
+  .stepper-control { grid-template-columns: 48px minmax(0, 1fr) 48px; gap: 8px; }
+  .stepper-button { min-height: 48px; }
+  .stepper-control input { min-height: 48px; font-size: 16px; }
+}
