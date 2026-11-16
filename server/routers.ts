@@ -13,6 +13,7 @@ const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 const itemSchema = z.object({
   id: z.string(),
   name: z.string().max(120),
+  size: z.string().max(40).optional(),
   price: z.number().int().min(0),
   embroidery: z.boolean(),
   embroideryText: z.string().max(200),
