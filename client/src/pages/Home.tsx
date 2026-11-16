@@ -227,7 +227,7 @@ function Field({ label, children, wide = false }: { label: string; children: Rea
 }
 
 const bambooSizes = ["28", "30", "32", "33", "34", "35", "36", "37男", "37女", "38男", "38女", "３８一般女子", "３９男", "３９女"];
-const keikogiSizes = ["０００号", "００号", "０号", "０．５号", "１号", "１．５号", "２号", "２．５号", "３号", "３．５号", "４号", "４．５号", "５号"];
+const keikogiSizes = ["000号", "00号", "0号", "0.5号", "1号", "1.5号", "2号", "2.5号", "3号", "3.5号", "4号", "4.5号", "5号"];
 const hakamaSizes = Array.from({ length: 14 }, (_, index) => `${String(index + 16).padStart(2, "０")}号`);
 
 function getSizeOptions(productName: string): string[] {
