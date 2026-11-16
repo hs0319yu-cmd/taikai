@@ -30,11 +30,13 @@ import {
 type OrderItem = {
   id: string;
   name: string;
+  size: string;
   price: number;
   quantity: number;
   embroidery: boolean;
   embroiderySize: string;
   embroideryText: string;
+  embroideryNote: string;
   embroideryColor: string;
   embroideryPrice: number;
   embroideryUnitPrice: number;
@@ -125,11 +127,13 @@ function makeItem(): DraftOrderItem {
   return {
     id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     name: "",
+    size: "",
     price: 0,
     quantity: 1,
     embroidery: false,
     embroiderySize: "通常",
     embroideryText: "",
+    embroideryNote: "",
     embroideryColor: "なし",
     embroideryPrice: 100,
     embroideryUnitPrice: 100,
@@ -222,6 +226,18 @@ function Field({ label, children, wide = false }: { label: string; children: Rea
   );
 }
 
+const bambooSizes = ["28", "30", "32", "33", "34", "35", "36", "37男", "37女", "38男", "38女", "３８一般女子", "３９男", "３９女"];
+const keikogiSizes = ["０００号", "００号", "０号", "０．５号", "１号", "１．５号", "２号", "２．５号", "３号", "３．５号", "４号", "４．５号", "５号"];
+const hakamaSizes = Array.from({ length: 14 }, (_, index) => `${String(index + 16).padStart(2, "０")}号`);
+
+function getSizeOptions(productName: string): string[] {
+  const name = productName.replace(/[（]/g, "(").replace(/[）]/g, ")").replace(/\s/g, "");
+  if (name.includes("竹刀") && (name.includes("仕組") || name.includes("仕込"))) return bambooSizes;
+  if (name.includes("剣道着")) return keikogiSizes;
+  if (name.includes("袴")) return hakamaSizes;
+  return [];
+}
+
 function ItemCard({
   item,
   index,
@@ -258,7 +274,7 @@ function ItemCard({
         <Field label="商品名">
           <input value={item.name} onChange={e => onChange({ name: e.target.value })} placeholder="例：大会Tシャツ" list={`product-tags-${item.id}`} />
           <datalist id={`product-tags-${item.id}`}>{tags.map(tag => <option key={tag.id} value={tag.name} />)}</datalist>
-          {tags.length > 0 && <select aria-label="登録商品タグから選択" className="tag-quick-select" value="" onChange={e => { const selected = tags.find(tag => tag.id === e.target.value); if (selected) onChange({ name: selected.name, price: selected.price }); }}><option value="">登録商品タグから選択（価格も入力）</option>{tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name} ／ {yen(tag.price)}</option>)}</select>}
+          {tags.length > 0 && <select aria-label="登録商品タグから選択" className="tag-quick-select" value="" onChange={e => { const selected = tags.find(tag => tag.id === e.target.value); if (selected) onChange({ name: selected.name, price: selected.price, size: "" }); }}><option value="">登録商品タグから選択（価格も入力）</option>{tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name} ／ {yen(tag.price)}</option>)}</select>}
         </Field>
         <Field label="商品単価（税込）">
           <div className="input-with-unit"><input type="number" min="0" value={item.price || ""} onChange={e => onChange({ price: Number(e.target.value) || 0 })} placeholder="0" /><span>円</span></div>
@@ -271,6 +287,16 @@ function ItemCard({
           </div>
         </Field>
       </div>
+      {getSizeOptions(item.name).length > 0 && (
+        <div className="item-grid size-select-grid">
+          <Field label="サイズ">
+            <select value={item.size || ""} onChange={e => onChange({ size: e.target.value })}>
+              <option value="">サイズを選択してください</option>
+              {getSizeOptions(item.name).map(size => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </Field>
+        </div>
+      )}
       <div className="embroidery-row">
         <div className="embroidery-toggle">
           <span className="field-label">刺繍</span>
@@ -286,6 +312,7 @@ function ItemCard({
           <div className="detail-heading"><Sparkles size={16} /><span>刺繍指定</span><span className="detail-caption">この商品のみ</span></div>
           <div className="item-grid">
             <Field label="刺繍の内容" wide><input value={item.embroideryText} onChange={e => onChange({ embroideryText: e.target.value })} placeholder="例：背番号 10 / TAKEDA" /></Field>
+            <Field label="刺繍の備考（任意入力）" wide><textarea value={item.embroideryNote || ""} onChange={e => onChange({ embroideryNote: e.target.value })} placeholder="例：右袖に入れる・旧字体で刺繍 など" rows={2} /></Field>
             <Field label="刺繍サイズ">
               <select value={item.embroiderySize || "通常"} onChange={e => { const size = e.target.value; const unit = size === "2.5cm" ? 200 : size === "3cm" ? 300 : 100; onChange({ embroiderySize: size, embroideryUnitPrice: unit, embroideryPrice: unit * Math.max(1, Number(item.embroideryCharacterCount) || 1) }); }}>
                 <option value="通常">通常</option>
@@ -544,6 +571,7 @@ const runImageOcr = async () => {
           embroidery: item.embroidery === true,
           embroiderySize: ["通常", "2.5cm", "3cm"].includes(String(item.embroiderySize || "")) ? String(item.embroiderySize) : "通常",
           embroideryText: String(item.embroideryText || ""),
+          embroideryNote: String(item.embroideryNote || ""),
           embroideryColor: matchedColor
             ? `${String(matchedColor[0]).padStart(2, "0")} ${matchedColor[1]}`
             : base.embroideryColor,
@@ -783,7 +811,7 @@ function SavedOrders({ onNewOrder }: { onNewOrder: () => void }) {
           <Button type="button" size="sm" onClick={printSelected} disabled={!selectedOrders.length}><Printer size={15} /> 選択した注文を印刷</Button>
         </div>
       </div>
-      {ordersQuery.isLoading ? <div className="empty-state"><RefreshCw className="spin" /><p>注文を読み込んでいます…</p></div> : groups.length === 0 ? <div className="empty-state"><ClipboardList size={35} /><h3>該当する注文はありません</h3><p>新しい注文を入力するか、検索条件を変更してください。</p></div> : <div className="order-groups">{groups.map(group => { const first = group.orders[0]; const openCount = group.orders.filter(order => !order.handedOver).length; return <article className="order-group" key={group.phone}><div className="group-head"><div className="group-person"><div className="avatar">{first.customerName.slice(0, 1) || "?"}</div><div><p className="eyebrow">PHONE / 注文番号</p><h3>{group.phone}</h3><span>{first.customerName} ・ {group.orders.length}件の注文</span></div></div><div className="group-actions"><span className={`status-pill ${openCount ? "open" : "done"}`}><span />{openCount ? `${openCount}件 未受け渡し` : "すべて渡し済み"}</span><Button variant="outline" size="sm" type="button" onClick={() => print(group.phone)}><Printer size={15} /> A4印刷</Button></div></div><div className="group-orders">{group.orders.map(order => <div className="order-row" key={order.id}><div className="order-row-main"><label className="order-print-check" aria-label={`注文 ${order.id} を印刷対象にする`}><input type="checkbox" checked={printOrderIds.includes(String(order.id))} onChange={() => togglePrintOrder(String(order.id))} /><span /></label><div className="order-id">#{String(order.id).padStart(4, "0")}</div><div className="order-main-content"><strong>{order.items.map(item => `${item.name || "商品未入力"} ×${Math.max(1, item.quantity || 1)}`).join(" / ")}</strong><span>{new Date(order.createdAt).toLocaleString("ja-JP")} ・ {order.deliveryEnabled ? `発送 ${order.shippingRegion}` : "会場受け取り"}</span><div className="order-item-handover-list">{order.items.map((item, itemIndex) => <div className="order-item-handover" key={item.id || itemIndex}><span>{item.name || "商品未入力"} ×{Math.max(1, item.quantity || 1)}{item.embroidery ? ` / 刺繍 ${item.embroiderySize || "通常"}` : ""}<small className="order-item-price">商品代 {yen((Number(item.price) || 0) * Math.max(1, item.quantity || 1))}{item.embroidery ? ` ／ 刺繍代 ${yen((Number(item.embroideryPrice) || 0) * Math.max(1, item.quantity || 1))}` : ""}</small></span><Button type="button" size="sm" className={item.handedOver ? "handed-button done" : "handed-button"} onClick={() => itemHandedOver.mutate({ id: String(order.id), itemIndex, handedOver: !item.handedOver })}>{item.handedOver ? <><Check size={14} /> 渡し済み</> : <><PackageCheck size={14} /> 未渡し・渡す</>}</Button><Button type="button" size="sm" className={item.paid ? "paid-button done" : "paid-button"} onClick={() => itemPaid.mutate({ id: String(order.id), itemIndex, paid: !item.paid })}>{item.paid ? "支払い済み" : "未払い"}</Button></div>)}</div></div></div><div className="order-row-total">{yen(order.totalAmount)}</div></div>)}</div></article>; })}</div>}
+      {ordersQuery.isLoading ? <div className="empty-state"><RefreshCw className="spin" /><p>注文を読み込んでいます…</p></div> : groups.length === 0 ? <div className="empty-state"><ClipboardList size={35} /><h3>該当する注文はありません</h3><p>新しい注文を入力するか、検索条件を変更してください。</p></div> : <div className="order-groups">{groups.map(group => { const first = group.orders[0]; const openCount = group.orders.filter(order => !order.handedOver).length; return <article className="order-group" key={group.phone}><div className="group-head"><div className="group-person"><div className="avatar">{first.customerName.slice(0, 1) || "?"}</div><div><p className="eyebrow">PHONE / 注文番号</p><h3>{group.phone}</h3><span>{first.customerName} ・ {group.orders.length}件の注文</span></div></div><div className="group-actions"><span className={`status-pill ${openCount ? "open" : "done"}`}><span />{openCount ? `${openCount}件 未受け渡し` : "すべて渡し済み"}</span><Button variant="outline" size="sm" type="button" onClick={() => print(group.phone)}><Printer size={15} /> A4印刷</Button></div></div><div className="group-orders">{group.orders.map(order => <div className="order-row" key={order.id}><div className="order-row-main"><label className="order-print-check" aria-label={`注文 ${order.id} を印刷対象にする`}><input type="checkbox" checked={printOrderIds.includes(String(order.id))} onChange={() => togglePrintOrder(String(order.id))} /><span /></label><div className="order-id">#{String(order.id).padStart(4, "0")}</div><div className="order-main-content"><strong>{order.items.map(item => `${item.name || "商品未入力"}${item.size ? `（${item.size}）` : ""} ×${Math.max(1, item.quantity || 1)}`).join(" / ")}</strong><span>{new Date(order.createdAt).toLocaleString("ja-JP")} ・ {order.deliveryEnabled ? `発送 ${order.shippingRegion}` : "会場受け取り"}</span><div className="order-item-handover-list">{order.items.map((item, itemIndex) => <div className="order-item-handover" key={item.id || itemIndex}><span>{item.name || "商品未入力"}{item.size ? `（${item.size}）` : ""} ×{Math.max(1, item.quantity || 1)}{item.embroidery ? ` / 刺繍 ${item.embroiderySize || "通常"}${item.embroideryNote ? ` / 備考：${item.embroideryNote}` : ""}` : ""}<small className="order-item-price">商品代 {yen((Number(item.price) || 0) * Math.max(1, item.quantity || 1))}{item.embroidery ? ` ／ 刺繍代 ${yen((Number(item.embroideryPrice) || 0) * Math.max(1, item.quantity || 1))}` : ""}</small></span><Button type="button" size="sm" className={item.handedOver ? "handed-button done" : "handed-button"} onClick={() => itemHandedOver.mutate({ id: String(order.id), itemIndex, handedOver: !item.handedOver })}>{item.handedOver ? <><Check size={14} /> 渡し済み</> : <><PackageCheck size={14} /> 未渡し・渡す</>}</Button><Button type="button" size="sm" className={item.paid ? "paid-button done" : "paid-button"} onClick={() => itemPaid.mutate({ id: String(order.id), itemIndex, paid: !item.paid })}>{item.paid ? "支払い済み" : "未払い"}</Button></div>)}</div></div></div><div className="order-row-total">{yen(order.totalAmount)}</div></div>)}</div></article>; })}</div>}
       {printGroups.map(({ phone, orders: groupPrintOrders }) => {
         const printCustomer = groupPrintOrders[0];
         return <div className="print-sheet" key={phone}>
@@ -801,9 +829,9 @@ function SavedOrders({ onNewOrder }: { onNewOrder: () => void }) {
                 const productAmount = (Number(item.price) || 0) * quantity;
                 const embroideryAmount = item.embroidery ? (Number(item.embroideryPrice) || 0) * quantity : 0;
                 return <div className="print-item" key={item.id}>
-                  <span>{item.name} × {quantity}点{item.embroidery ? ` / 刺繍：${item.embroideryText || "あり"}（サイズ：${item.embroiderySize || "通常"}・${item.embroideryColor}・${item.embroideryCharacterCount ?? 1}文字）` : ""}
+                  <span>{item.name}{item.size ? `（${item.size}）` : ""} × {quantity}点{item.embroidery ? ` / 刺繍：${item.embroideryText || "あり"}（サイズ：${item.embroiderySize || "通常"}・${item.embroideryColor}・${item.embroideryCharacterCount ?? 1}文字）` : ""}
                     <small>商品代：{yen(productAmount)} ／ {item.handedOver ? "渡し済み" : "未渡し"}</small>
-                    {item.embroidery && <small>刺繍代：{yen(embroideryAmount)}</small>}\n                    <small>支払い：{item.paid ? "支払い済み" : "未払い"}</small>
+                    {item.embroidery && <><small>刺繍代：{yen(embroideryAmount)}</small>{item.embroideryNote && <small>刺繍備考：{item.embroideryNote}</small>}</>}\n                    <small>支払い：{item.paid ? "支払い済み" : "未払い"}</small>
                   </span>
                   <strong>{yen(productAmount + embroideryAmount)}</strong>
                 </div>;
