@@ -232,7 +232,10 @@ const hakamaSizes = Array.from({ length: 14 }, (_, index) => `${String(index + 1
 
 function getSizeOptions(productName: string): string[] {
   const name = productName.replace(/[（]/g, "(").replace(/[）]/g, ")").replace(/\s/g, "");
-  if (name.includes("竹刀") && (name.includes("仕組") || name.includes("仕込"))) return bambooSizes;
+  // 商品タグ名が「仕組」「小判仕組」「燻竹仕組」のように
+  // 「竹刀」を含まない場合も、竹刀サイズを表示する。
+  if (name.includes("仕組") || name.includes("仕込")) return bambooSizes;
+  if (name.includes("竹刀")) return bambooSizes;
   if (name.includes("剣道着")) return keikogiSizes;
   if (name.includes("袴")) return hakamaSizes;
   return [];
