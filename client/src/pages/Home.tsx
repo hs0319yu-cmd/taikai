@@ -126,13 +126,13 @@ function makeItem(): DraftOrderItem {
     id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     name: "",
     price: 0,
-    quantity: "",
+    quantity: 1,
     embroidery: false,
     embroiderySize: "通常",
     embroideryText: "",
     embroideryColor: "なし",
-    embroideryPrice: 0,
-    embroideryUnitPrice: 0,
+    embroideryPrice: 100,
+    embroideryUnitPrice: 100,
     embroideryCharacterCount: 1,
     handedOver: false,
     paid: false,
@@ -264,7 +264,11 @@ function ItemCard({
           <div className="input-with-unit"><input type="number" min="0" value={item.price || ""} onChange={e => onChange({ price: Number(e.target.value) || 0 })} placeholder="0" /><span>円</span></div>
         </Field>
         <Field label="数量（点数）">
-          <input type="number" min="1" step="1" value={item.quantity} onChange={e => { const value = e.target.value; onChange({ quantity: value === "" ? "" : Number(value) }); }} placeholder="数量を入力" />
+          <div className="stepper-control">
+            <button type="button" className="stepper-button" aria-label="数量を減らす" onClick={() => onChange({ quantity: Math.max(1, (Number(item.quantity) || 1) - 1) })}><Minus size={16} /></button>
+            <input type="number" min="1" step="1" value={item.quantity} onChange={e => { const value = e.target.value; onChange({ quantity: value === "" ? "" : Math.max(1, Math.floor(Number(value) || 1)) }); }} onBlur={() => { if (item.quantity === "" || Number(item.quantity) < 1) onChange({ quantity: 1 }); }} aria-label="数量（点数）" />
+            <button type="button" className="stepper-button" aria-label="数量を増やす" onClick={() => onChange({ quantity: (Number(item.quantity) || 1) + 1 })}><Plus size={16} /></button>
+          </div>
         </Field>
       </div>
       <div className="embroidery-row">
@@ -283,14 +287,18 @@ function ItemCard({
           <div className="item-grid">
             <Field label="刺繍の内容" wide><input value={item.embroideryText} onChange={e => onChange({ embroideryText: e.target.value })} placeholder="例：背番号 10 / TAKEDA" /></Field>
             <Field label="刺繍サイズ">
-              <select value={item.embroiderySize || "通常"} onChange={e => onChange({ embroiderySize: e.target.value })}>
+              <select value={item.embroiderySize || "通常"} onChange={e => { const size = e.target.value; const unit = size === "2.5cm" ? 200 : size === "3cm" ? 300 : 100; onChange({ embroiderySize: size, embroideryUnitPrice: unit, embroideryPrice: unit * Math.max(1, Number(item.embroideryCharacterCount) || 1) }); }}>
                 <option value="通常">通常</option>
                 <option value="2.5cm">2.5cm</option>
                 <option value="3cm">3cm</option>
               </select>
             </Field>
             <Field label="1文字あたりの刺繍単価（税込）"><div className="input-with-unit"><input type="number" min="0" value={item.embroideryUnitPrice || ""} onChange={e => { const unit = Number(e.target.value) || 0; onChange({ embroideryUnitPrice: unit, embroideryPrice: unit * Math.max(0, Number(item.embroideryCharacterCount) || 0) }); }} placeholder="200" /><span>円</span></div></Field>
-            <Field label="文字数"><input type="text" inputMode="numeric" pattern="[0-9]*" value={embroideryCountText} onChange={e => { const raw = e.target.value.replace(/[^0-9]/g, ""); setEmbroideryCountText(raw); if (raw !== "") { const count = Number(raw); onChange({ embroideryCharacterCount: count, embroideryPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0) * count }); } }} onBlur={() => { const count = embroideryCountText === "" ? (item.embroideryCharacterCount ?? 1) : Number(embroideryCountText); const normalized = String(count); setEmbroideryCountText(normalized); onChange({ embroideryCharacterCount: count, embroideryPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0) * count }); }} placeholder="例：2" /></Field>
+            <Field label="文字数"><div className="stepper-control">
+              <button type="button" className="stepper-button" aria-label="文字数を減らす" onClick={() => { const count = Math.max(1, (Number(item.embroideryCharacterCount) || 1) - 1); setEmbroideryCountText(String(count)); onChange({ embroideryCharacterCount: count, embroideryPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0) * count }); }}><Minus size={16} /></button>
+              <input type="text" inputMode="numeric" pattern="[0-9]*" value={embroideryCountText} onChange={e => { const raw = e.target.value.replace(/[^0-9]/g, ""); setEmbroideryCountText(raw); if (raw !== "") { const count = Math.max(1, Number(raw)); onChange({ embroideryCharacterCount: count, embroideryPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0) * count }); } }} onBlur={() => { const count = Math.max(1, embroideryCountText === "" ? (item.embroideryCharacterCount ?? 1) : Number(embroideryCountText)); const normalized = String(count); setEmbroideryCountText(normalized); onChange({ embroideryCharacterCount: count, embroideryPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0) * count }); }} aria-label="刺繍の文字数" />
+              <button type="button" className="stepper-button" aria-label="文字数を増やす" onClick={() => { const count = (Number(item.embroideryCharacterCount) || 1) + 1; setEmbroideryCountText(String(count)); onChange({ embroideryCharacterCount: count, embroideryPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0) * count }); }}><Plus size={16} /></button>
+            </div></Field>
             <div className="field"><span className="field-label">刺繍料金（税込・自動計算）</span><div className="input-with-unit"><input value={item.embroideryPrice.toLocaleString("ja-JP")} readOnly aria-label="刺繍料金" /><span>円</span></div><small>{yen(item.embroideryUnitPrice || 0)} × {item.embroideryCharacterCount ?? 1}文字</small></div>
           </div>
           <div className="color-pick-area">
@@ -531,7 +539,7 @@ const runImageOcr = async () => {
           price: Math.max(0, Number(item.price) || 0),
           quantity:
             item.quantity == null || Number(item.quantity) <= 0
-              ? ""
+              ? 1
               : Math.floor(Number(item.quantity)),
           embroidery: item.embroidery === true,
           embroiderySize: ["通常", "2.5cm", "3cm"].includes(String(item.embroiderySize || "")) ? String(item.embroiderySize) : "通常",
@@ -540,7 +548,7 @@ const runImageOcr = async () => {
             ? `${String(matchedColor[0]).padStart(2, "0")} ${matchedColor[1]}`
             : base.embroideryColor,
           embroideryPrice: Math.max(0, Number(item.embroideryPrice) || 0),
-          embroideryUnitPrice: Math.max(0, Number(item.embroideryUnitPrice) || 0),
+          embroideryUnitPrice: Math.max(0, Number(item.embroideryUnitPrice) || (String(item.embroiderySize || "通常") === "2.5cm" ? 200 : String(item.embroiderySize || "通常") === "3cm" ? 300 : 100)),
           embroideryCharacterCount: Math.max(0, Math.floor(Number(item.embroideryCharacterCount) || 1)),
           handedOver: false,
           paid: false
