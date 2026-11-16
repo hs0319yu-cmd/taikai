@@ -62,7 +62,7 @@ type StoredOrder = {
 };
 
 // 都道府県別送料（税込）。注文画面・送料一覧・注文票で共通利用する。
-const shippingOptions = [
+const defaultShippingOptions = [
   ["北海道", 1500],
   ["青森県", 880],
   ["岩手県", 880],
@@ -360,6 +360,8 @@ function NewOrder({ onSaved }: { onSaved: () => void }) {
   const [items, setItems] = useState<DraftOrderItem[]>([makeItem()]);
   const productTagsQuery = useQuery({ queryKey: ["productTags"], queryFn: api.productTags.list, staleTime: 60_000 });
   const productTags = productTagsQuery.data ?? [];
+  const shippingQuery = useQuery({ queryKey: ["shippingRates"], queryFn: api.shipping.list, staleTime: 15_000, refetchInterval: 30_000 });
+  const shippingOptions = Object.entries(shippingQuery.data ?? Object.fromEntries(defaultShippingOptions)) as [string, number][];
   const [deliveryEnabled, setDeliveryEnabled] = useState(false);
   const [shippingRegion, setShippingRegion] = useState("");
   const [notes, setNotes] = useState("");
@@ -870,6 +872,34 @@ function ProductTagAdmin({ onClose }: { onClose: () => void }) {
   </section>;
 }
 
+function ShippingAdmin({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const query = useQuery({ queryKey: ["shippingRates"], queryFn: api.shipping.list });
+  const [rates, setRates] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (query.data) setRates(Object.fromEntries(Object.entries(query.data).map(([region, amount]) => [region, String(amount)])));
+  }, [query.data]);
+  const save = useMutation({
+    mutationFn: () => {
+      const normalized: Record<string, number> = {};
+      for (const [region, value] of Object.entries(rates)) {
+        const amount = Number(value);
+        if (!Number.isInteger(amount) || amount < 0 || amount > 100000) throw new Error(`${region}の送料は0〜100,000円の整数で入力してください。`);
+        normalized[region] = amount;
+      }
+      return api.shipping.save(normalized);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["shippingRates"] });
+      toast.success("送料設定を全スタッフに共有しました");
+    },
+    onError: (error: Error) => toast.error("保存できませんでした", { description: error.message }),
+  });
+  return <section className="staff-admin-panel"><div className="staff-admin-heading"><div><p className="eyebrow cyan">ADMIN / SHIPPING</p><h2>都道府県別送料設定</h2><p className="section-note">保存すると全スタッフの注文画面・送料計算に反映されます。</p></div><Button variant="ghost" size="icon" onClick={onClose}><X size={18} /></Button></div>
+    {query.isLoading ? <p className="section-note">送料設定を読み込み中…</p> : <><div className="staff-create-form shipping-rate-grid">{Object.keys(rates).map(region => <label className="field" key={region}><span className="field-label">{region}</span><div className="input-with-unit"><input type="number" min="0" max="100000" step="1" value={rates[region] ?? ""} onChange={event => setRates(current => ({ ...current, [region]: event.target.value }))} /><span>円</span></div></label>)}</div><div className="staff-admin-heading"><span className="section-note">送料は税込金額で入力してください。</span><Button type="button" onClick={() => save.mutate()} disabled={save.isPending || query.isLoading}><Check size={15} />{save.isPending ? "保存中…" : "送料設定を保存"}</Button></div></>}
+  </section>;
+}
+
 export default function Home() {
   const queryClient = useQueryClient();
   // 認証状態は初回とログイン状態の更新時だけ確認し、毎分の定期通信を止める。
@@ -896,6 +926,7 @@ export default function Home() {
   const [setupKey, setSetupKey] = useState("");
   const [showStaff, setShowStaff] = useState(false);
   const [showTags, setShowTags] = useState(false);
+  const [showShipping, setShowShipping] = useState(false);
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffPassword, setNewStaffPassword] = useState("");
@@ -917,8 +948,9 @@ export default function Home() {
     <Button className="save-button" type="submit" disabled={login.isPending || bootstrap.isPending}>{setup.data?.needsSetup ? "管理者アカウントを作成" : "ログイン"}</Button>
     <p className="auth-footnote"><ShieldCheck size={14} /> 通信はHTTPS・パスワードはハッシュ化して保存</p>
   </form></div>;
-  return <div className="app-shell"><header className="topbar"><div className="brand-lockup"><div className="brand-symbol">✦</div><div><strong>大会注文管理</strong><span>SECURE STAFF CONSOLE</span></div></div><nav className="view-switch"><button className={mainView === "new" ? "active" : ""} onClick={() => setMainView("new")}><Plus size={16} /> 新規注文</button><button className={mainView === "saved" ? "active" : ""} onClick={() => setMainView("saved")}><ClipboardList size={16} /> 保存済み <span>注文</span></button></nav><div className="staff-menu"><div className="staff-avatar">{me.data.name?.slice(0, 1) ?? "S"}</div><div className="staff-name"><strong>{me.data.name ?? "スタッフ"}</strong><span>{me.data.role === "admin" ? "管理者" : "認証済み"}</span></div>{me.data.role === "admin" && <><Button variant="outline" size="sm" type="button" onClick={() => { setShowStaff(v => !v); setShowTags(false); }}>スタッフ管理</Button><Button variant="outline" size="sm" type="button" onClick={() => { setShowTags(v => !v); setShowStaff(false); }}><Tag size={14} /> 商品タグ管理</Button></>}<Button variant="ghost" size="icon" type="button" onClick={() => logout.mutate()} aria-label="ログアウト"><LogOut size={16} /></Button></div></header>
+  return <div className="app-shell"><header className="topbar"><div className="brand-lockup"><div className="brand-symbol">✦</div><div><strong>大会注文管理</strong><span>SECURE STAFF CONSOLE</span></div></div><nav className="view-switch"><button className={mainView === "new" ? "active" : ""} onClick={() => setMainView("new")}><Plus size={16} /> 新規注文</button><button className={mainView === "saved" ? "active" : ""} onClick={() => setMainView("saved")}><ClipboardList size={16} /> 保存済み <span>注文</span></button></nav><div className="staff-menu"><div className="staff-avatar">{me.data.name?.slice(0, 1) ?? "S"}</div><div className="staff-name"><strong>{me.data.name ?? "スタッフ"}</strong><span>{me.data.role === "admin" ? "管理者" : "認証済み"}</span></div>{me.data.role === "admin" && <><Button variant="outline" size="sm" type="button" onClick={() => { setShowStaff(v => !v); setShowTags(false); setShowShipping(false); }}>スタッフ管理</Button><Button variant="outline" size="sm" type="button" onClick={() => { setShowTags(v => !v); setShowStaff(false); setShowShipping(false); }}><Tag size={14} /> 商品タグ管理</Button><Button variant="outline" size="sm" type="button" onClick={() => { setShowShipping(v => !v); setShowStaff(false); setShowTags(false); }}><Truck size={14} /> 送料設定</Button></>}<Button variant="ghost" size="icon" type="button" onClick={() => logout.mutate()} aria-label="ログアウト"><LogOut size={16} /></Button></div></header>
     {showStaff && me.data.role === "admin" && <section className="staff-admin-panel"><div className="staff-admin-heading"><div><p className="eyebrow cyan">ADMIN / STAFF</p><h2>スタッフアカウント管理</h2></div><Button variant="ghost" size="icon" onClick={() => setShowStaff(false)}><X size={18} /></Button></div><form className="staff-create-form" onSubmit={event => { event.preventDefault(); createStaff.mutate({ email: newStaffEmail, name: newStaffName, password: newStaffPassword }); }}><input type="text" placeholder="スタッフ名" value={newStaffName} onChange={e => setNewStaffName(e.target.value)} required /><input type="email" placeholder="メールアドレス" value={newStaffEmail} onChange={e => setNewStaffEmail(e.target.value)} required /><input type="password" placeholder="初期パスワード（12文字以上）" value={newStaffPassword} onChange={e => setNewStaffPassword(e.target.value)} minLength={12} required /><Button type="submit" disabled={createStaff.isPending}><Plus size={15} /> スタッフ追加</Button></form><div className="staff-list">{staffQuery.data?.map(staff => <div className="staff-row" key={staff.id}><div><strong>{staff.name}</strong><span>{staff.email} · {staff.role === "admin" ? "管理者" : "スタッフ"}</span></div><span className={staff.isActive ? "staff-active" : "staff-disabled"}>{staff.isActive ? "有効" : "停止中"}</span>{staff.role !== "admin" && <Button size="sm" variant="outline" onClick={() => changeStaff.mutate({ id: staff.id, active: !staff.isActive })}>{staff.isActive ? "利用停止" : "再有効化"}</Button>}</div>)}</div></section>}
     {showTags && me.data.role === "admin" && <ProductTagAdmin onClose={() => setShowTags(false)} />}
+    {showShipping && me.data.role === "admin" && <ShippingAdmin onClose={() => setShowShipping(false)} />}
     <main className="main-shell">{mainView === "new" ? <NewOrder onSaved={() => { queryClient.invalidateQueries({ queryKey: ["orders"] }); setMainView("saved"); }} /> : <SavedOrders onNewOrder={() => setMainView("new")} />}</main><footer className="app-footer"><span><ShieldCheck size={13} /> 個人情報は認証済みスタッフ専用</span><span>大会注文管理 / v1.1</span></footer></div>;
 }
