@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { api, getToken, type ApiProductTag } from "@/lib/api";
+import { api, getToken, getSavedStaffEmail, type ApiProductTag } from "@/lib/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -920,7 +920,11 @@ export default function Home() {
     enabled: !getToken(),
     staleTime: 5 * 60 * 1000
   });
-  const [email, setEmail] = useState("hs.0319yu@gmail.com");
+  const inviteToken = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("invite") || "" : "";
+  const inviteInfo = useQuery({ queryKey: ["auth", "invite", inviteToken], queryFn: () => api.auth.inviteInfo(inviteToken), enabled: Boolean(inviteToken), retry: false });
+  const [invitePassword, setInvitePassword] = useState("");
+  const [invitePasswordConfirm, setInvitePasswordConfirm] = useState("");
+  const [email, setEmail] = useState(getSavedStaffEmail);
   const [password, setPassword] = useState("");
   const [name, setName] = useState("管理者");
   const [setupKey, setSetupKey] = useState("");
@@ -929,14 +933,24 @@ export default function Home() {
   const [showShipping, setShowShipping] = useState(false);
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffName, setNewStaffName] = useState("");
-  const [newStaffPassword, setNewStaffPassword] = useState("");
+
   const login = useMutation({ mutationFn: api.auth.login, onSuccess: () => { setPassword(""); queryClient.invalidateQueries({ queryKey: ["auth", "me"] }); }, onError: (e: Error) => toast.error("ログインできません", { description: e.message }) });
   const bootstrap = useMutation({ mutationFn: api.auth.bootstrapAdmin, onSuccess: () => { setPassword(""); setSetupKey(""); queryClient.invalidateQueries({ queryKey: ["auth"] }); }, onError: (e: Error) => toast.error("初期設定できません", { description: e.message }) });
   const logout = useMutation({ mutationFn: api.auth.logout, onSuccess: () => { queryClient.setQueryData(["auth", "me"], null); queryClient.invalidateQueries({ queryKey: ["auth", "me"] }); } });
   const staffQuery = useQuery({ queryKey: ["auth", "staff"], queryFn: api.auth.staffList, enabled: me.data?.role === "admin" && showStaff });
-  const createStaff = useMutation({ mutationFn: api.auth.createStaff, onSuccess: () => { toast.success("スタッフを追加しました"); setNewStaffEmail(""); setNewStaffName(""); setNewStaffPassword(""); staffQuery.refetch(); }, onError: (e: Error) => toast.error("追加できません", { description: e.message }) });
+  const createStaff = useMutation({ mutationFn: api.auth.createStaffInvite, onSuccess: () => { toast.success("招待メールを送信しました"); setNewStaffEmail(""); setNewStaffName(""); staffQuery.refetch(); }, onError: (e: Error) => toast.error("招待できません", { description: e.message }) });
+  const acceptInvite = useMutation({ mutationFn: api.auth.acceptInvite, onSuccess: () => { toast.success("初回パスワードを設定しました"); window.location.replace(window.location.pathname); }, onError: (e: Error) => toast.error("招待を完了できません", { description: e.message }) });
+  useEffect(() => { if (me.data?.email) { try { localStorage.setItem("taikai_staff_email", me.data.email); } catch {} } }, [me.data?.email]);
   const changeStaff = useMutation({ mutationFn: api.auth.setStaffActive, onSuccess: () => staffQuery.refetch(), onError: (e: Error) => toast.error(e.message) });
   const [mainView, setMainView] = useState<"new" | "saved">("new");
+  if (inviteToken) {
+    if (inviteInfo.isLoading) return <div className="auth-loading"><RefreshCw className="spin" size={20} /><p>招待を確認しています…</p></div>;
+    return <div className="auth-screen"><form className="auth-card" onSubmit={event => { event.preventDefault(); if (invitePassword !== invitePasswordConfirm) { toast.error("パスワードが一致しません"); return; } acceptInvite.mutate({ inviteToken, password: invitePassword }); }}>
+      <div className="brand-lockup"><div className="brand-symbol">✦</div><div><strong>大会注文管理</strong><span>STAFF INVITATION</span></div></div>
+      <p className="eyebrow cyan">FIRST-TIME SETUP</p><h1>スタッフ招待</h1>
+      {inviteInfo.isError ? <p className="auth-description">{(inviteInfo.error as Error)?.message || "この招待URLは利用できません。"}</p> : <><p className="auth-description">招待されたアカウントの情報を確認し、初回パスワードを設定してください。</p><label className="field"><span className="field-label">スタッフ名</span><input value={inviteInfo.data?.name || ""} readOnly /></label><label className="field"><span className="field-label">メールアドレス</span><input type="email" value={inviteInfo.data?.email || ""} readOnly /></label><label className="field"><span className="field-label">パスワード（12文字以上）</span><input type="password" value={invitePassword} onChange={e => setInvitePassword(e.target.value)} minLength={12} required autoComplete="new-password" /></label><label className="field"><span className="field-label">パスワード（確認）</span><input type="password" value={invitePasswordConfirm} onChange={e => setInvitePasswordConfirm(e.target.value)} minLength={12} required autoComplete="new-password" /></label><Button className="save-button" type="submit" disabled={acceptInvite.isPending}>{acceptInvite.isPending ? "設定中…" : "パスワードを設定してログイン"}</Button></>}
+    </form></div>;
+  }
   if (me.isLoading || setup.isLoading) return <div className="auth-loading"><div className="brand-lockup"><div className="brand-symbol">✦</div><div><strong>大会注文管理</strong><span>SECURE STAFF CONSOLE</span></div></div><RefreshCw className="spin" size={20} /><p>認証状態を確認しています…</p></div>;
   if (!me.data) return <div className="auth-screen"><form className="auth-card" autoComplete="on" onSubmit={event => { event.preventDefault(); if (setup.data?.needsSetup) bootstrap.mutate({ setupKey, email, name, password }); else login.mutate({ email, password }); }}>
     <div className="brand-lockup"><div className="brand-symbol">✦</div><div><strong>大会注文管理</strong><span>PRIVATE STAFF ACCESS</span></div></div>
@@ -949,7 +963,7 @@ export default function Home() {
     <p className="auth-footnote"><ShieldCheck size={14} /> 通信はHTTPS・パスワードはハッシュ化して保存</p>
   </form></div>;
   return <div className="app-shell"><header className="topbar"><div className="brand-lockup"><div className="brand-symbol">✦</div><div><strong>大会注文管理</strong><span>SECURE STAFF CONSOLE</span></div></div><nav className="view-switch"><button className={mainView === "new" ? "active" : ""} onClick={() => setMainView("new")}><Plus size={16} /> 新規注文</button><button className={mainView === "saved" ? "active" : ""} onClick={() => setMainView("saved")}><ClipboardList size={16} /> 保存済み <span>注文</span></button></nav><div className="staff-menu"><div className="staff-avatar">{me.data.name?.slice(0, 1) ?? "S"}</div><div className="staff-name"><strong>{me.data.name ?? "スタッフ"}</strong><span>{me.data.role === "admin" ? "管理者" : "認証済み"}</span></div>{me.data.role === "admin" && <><Button variant="outline" size="sm" type="button" onClick={() => { setShowStaff(v => !v); setShowTags(false); setShowShipping(false); }}>スタッフ管理</Button><Button variant="outline" size="sm" type="button" onClick={() => { setShowTags(v => !v); setShowStaff(false); setShowShipping(false); }}><Tag size={14} /> 商品タグ管理</Button><Button variant="outline" size="sm" type="button" onClick={() => { setShowShipping(v => !v); setShowStaff(false); setShowTags(false); }}><Truck size={14} /> 送料設定</Button></>}<Button variant="ghost" size="icon" type="button" onClick={() => logout.mutate()} aria-label="ログアウト"><LogOut size={16} /></Button></div></header>
-    {showStaff && me.data.role === "admin" && <section className="staff-admin-panel"><div className="staff-admin-heading"><div><p className="eyebrow cyan">ADMIN / STAFF</p><h2>スタッフアカウント管理</h2></div><Button variant="ghost" size="icon" onClick={() => setShowStaff(false)}><X size={18} /></Button></div><form className="staff-create-form" onSubmit={event => { event.preventDefault(); createStaff.mutate({ email: newStaffEmail, name: newStaffName, password: newStaffPassword }); }}><input type="text" placeholder="スタッフ名" value={newStaffName} onChange={e => setNewStaffName(e.target.value)} required /><input type="email" placeholder="メールアドレス" value={newStaffEmail} onChange={e => setNewStaffEmail(e.target.value)} required /><input type="password" placeholder="初期パスワード（12文字以上）" value={newStaffPassword} onChange={e => setNewStaffPassword(e.target.value)} minLength={12} required /><Button type="submit" disabled={createStaff.isPending}><Plus size={15} /> スタッフ追加</Button></form><div className="staff-list">{staffQuery.data?.map(staff => <div className="staff-row" key={staff.id}><div><strong>{staff.name}</strong><span>{staff.email} · {staff.role === "admin" ? "管理者" : "スタッフ"}</span></div><span className={staff.isActive ? "staff-active" : "staff-disabled"}>{staff.isActive ? "有効" : "停止中"}</span>{staff.role !== "admin" && <Button size="sm" variant="outline" onClick={() => changeStaff.mutate({ id: staff.id, active: !staff.isActive })}>{staff.isActive ? "利用停止" : "再有効化"}</Button>}</div>)}</div></section>}
+    {showStaff && me.data.role === "admin" && <section className="staff-admin-panel"><div className="staff-admin-heading"><div><p className="eyebrow cyan">ADMIN / STAFF</p><h2>スタッフアカウント管理</h2></div><Button variant="ghost" size="icon" onClick={() => setShowStaff(false)}><X size={18} /></Button></div><form className="staff-create-form" onSubmit={event => { event.preventDefault(); createStaff.mutate({ email: newStaffEmail, name: newStaffName }); }}><input type="text" placeholder="スタッフ名" value={newStaffName} onChange={e => setNewStaffName(e.target.value)} required /><input type="email" placeholder="メールアドレス" value={newStaffEmail} onChange={e => setNewStaffEmail(e.target.value)} required /><Button type="submit" disabled={createStaff.isPending}><Plus size={15} /> 招待メールを送信</Button></form><p className="section-note">スタッフには専用URLをメールで送信します。URLの有効期限は48時間です。</p><div className="staff-list">{staffQuery.data?.map(staff => <div className="staff-row" key={staff.id}><div><strong>{staff.name}</strong><span>{staff.email} · {staff.role === "admin" ? "管理者" : "スタッフ"}</span></div><span className={staff.isActive ? "staff-active" : "staff-disabled"}>{staff.isActive ? "有効" : "停止中"}</span>{staff.role !== "admin" && <Button size="sm" variant="outline" onClick={() => changeStaff.mutate({ id: staff.id, active: !staff.isActive })}>{staff.isActive ? "利用停止" : "再有効化"}</Button>}</div>)}</div></section>}
     {showTags && me.data.role === "admin" && <ProductTagAdmin onClose={() => setShowTags(false)} />}
     {showShipping && me.data.role === "admin" && <ShippingAdmin onClose={() => setShowShipping(false)} />}
     <main className="main-shell">{mainView === "new" ? <NewOrder onSaved={() => { queryClient.invalidateQueries({ queryKey: ["orders"] }); setMainView("saved"); }} /> : <SavedOrders onNewOrder={() => setMainView("new")} />}</main><footer className="app-footer"><span><ShieldCheck size={13} /> 個人情報は認証済みスタッフ専用</span><span>大会注文管理 / v1.1</span></footer></div>;
