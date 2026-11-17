@@ -1,5 +1,14 @@
 const API_URL = "https://still-voice-2835taikai-api.hs-0319yu.workers.dev/";
 const TOKEN_KEY = "taikai_session_token";
+const EMAIL_KEY = "taikai_staff_email";
+
+export function getSavedStaffEmail() {
+  try { return localStorage.getItem(EMAIL_KEY) || "hs.0319yu@gmail.com"; } catch { return "hs.0319yu@gmail.com"; }
+}
+function saveStaffEmail(email?: string) {
+  if (!email) return;
+  try { localStorage.setItem(EMAIL_KEY, email); } catch {}
+}
 
 export type ApiUser = { staffId: string; email: string; name: string; role: "admin" | "staff" };
 export type ApiStaff = { id: string; email: string; name: string; role: "admin" | "staff"; isActive: boolean };
@@ -95,11 +104,22 @@ export const api = {
     async login(input: { email: string; password: string }) {
       const r = await callApi<any>("auth.login", input, false);
       saveToken(r.token);
+      saveStaffEmail(r.user?.email || input.email);
       return r;
     },
     async bootstrapAdmin(input: { setupKey: string; email: string; name: string; password: string }) {
       const r = await callApi<any>("auth.bootstrapAdmin", input, false);
       saveToken(r.token);
+      saveStaffEmail(r.user?.email || input.email);
+      return r;
+    },
+    async inviteInfo(inviteToken: string) {
+      return callApi<any>("auth.getStaffInvite", { inviteToken }, false);
+    },
+    async acceptInvite(input: { inviteToken: string; password: string }) {
+      const r = await callApi<any>("auth.acceptStaffInvite", input, false);
+      saveToken(r.token);
+      saveStaffEmail(r.user?.email);
       return r;
     },
     async logout() {
@@ -107,13 +127,13 @@ export const api = {
     },
     async staffList(): Promise<ApiStaff[]> {
       const r = await callApi<any>("auth.staffList");
-      return (r.staff ?? r.users ?? []).map((s: any) => ({ ...s, id: String(s.id ?? s.staffId), isActive: s.isActive !== false }));
+      return (r.staff ?? r.users ?? []).map((s: any) => ({ ...s, id: String(s.id ?? s.staffId), isActive: (s.active ?? s.isActive) !== false }));
     },
-    createStaff(input: { email: string; name: string; password: string }) {
-      return callApi("auth.createStaff", input);
+    createStaffInvite(input: { email: string; name: string }) {
+      return callApi("auth.createStaffInvite", input);
     },
     setStaffActive(input: { id: string; active: boolean }) {
-      return callApi("auth.setStaffActive", input);
+      return callApi("auth.setStaffActive", { staffId: input.id, active: input.active });
     },
   },
 
